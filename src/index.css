@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #0f172a;
+  background: #f3f8ff;
+}
+
+@layer base {
+  * {
+    @apply border-slate-200;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-[#f3f8ff] text-slate-900;
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  ::selection {
+    background: rgba(27, 139, 250, 0.18);
+    color: #0f172a;
+  }
+}
+
+@layer components {
+  .brand-primary-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium text-white transition;
+    background: linear-gradient(135deg, #1b8bfa 0%, #3aa3ff 100%);
+    box-shadow: 0 16px 36px rgba(27, 139, 250, 0.22);
+  }
+
+  .brand-primary-btn:hover {
+    background: linear-gradient(135deg, #1577d9 0%, #2f95ef 100%);
+    transform: translateY(-1px);
+  }
+
+  .brand-secondary-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition;
+    border-color: #d4e8ff;
+    background: rgba(255, 255, 255, 0.92);
+    color: #4d79a9;
+    box-shadow: 0 10px 28px rgba(27, 139, 250, 0.06);
+  }
+
+  .brand-secondary-btn:hover {
+    background: #f6fbff;
+    color: #1b8bfa;
+  }
+
+  .brand-input {
+    @apply w-full rounded-2xl border px-4 py-3 text-sm outline-none transition;
+    border-color: #d4e8ff;
+    background: linear-gradient(180deg, #fbfdff 0%, #f4f9ff 100%);
+    color: #0f172a;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  }
+
+  .brand-input::placeholder {
+    color: #8caed5;
+  }
+
+  .brand-input:focus {
+    border-color: #1b8bfa;
+    box-shadow:
+      0 0 0 4px rgba(27, 139, 250, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    background: #ffffff;
+  }
+
+  .brand-kicker {
+    @apply text-xs uppercase tracking-[0.24em];
+    color: #7d9ec4;
+  }
+
+  .brand-table thead {
+    background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+    color: #6f8fb3;
+  }
+
+  .brand-table tbody tr {
+    transition: background-color 160ms ease;
+  }
+
+  .brand-table tbody tr:hover {
+    background: #f8fbff;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif;
+  }
+}
