@@ -112,7 +112,6 @@ export default function LoginPage() {
               <div className="mt-6">
                 <h1 className="text-3xl font-semibold tracking-tight text-slate-950">登录</h1>
                 <p className="mt-2 text-sm leading-6 text-[#7891af]">{regionMeta.welcome}</p>
-                <p className="mt-2 text-xs leading-6 text-[#90a4bf]">{regionMeta.supportText}</p>
               </div>
 
               <div className="mt-8 space-y-5">
