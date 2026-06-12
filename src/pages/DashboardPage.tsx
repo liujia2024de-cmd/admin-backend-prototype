@@ -1,6 +1,6 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, Bot, Check, ChevronDown, Cpu, Crown, Download, ShieldEllipsis, Sparkles, UsersRound, Wifi } from "lucide-react";
+import { Activity, Bot, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Cpu, Crown, Download, ShieldEllipsis, Sparkles, UsersRound, Wifi } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AppShell } from "@/components/layout/AppShell";
 import { Panel } from "@/components/ui/Panel";
@@ -183,6 +183,170 @@ const appUsageHourlyPreset: Record<AppUsageDateKey, Record<UserScope, number[]>>
 function formatDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10);
 }
+
+function parseDateInputValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatDateDisplay(value: string) {
+  return value ? value.replaceAll("-", ".") : "请选择日期";
+}
+
+function buildCalendarDays(monthDate: Date) {
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const weekOffset = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1 - weekOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(gridStart);
+    current.setDate(gridStart.getDate() + index);
+    return {
+      value: formatDateInputValue(current),
+      label: current.getDate(),
+      inCurrentMonth: current.getMonth() === monthDate.getMonth(),
+      isToday: formatDateInputValue(current) === formatDateInputValue(new Date()),
+    };
+  });
+}
+
+function ReportDatePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [displayMonth, setDisplayMonth] = useState(() => {
+    const selected = value ? parseDateInputValue(value) : new Date();
+    return new Date(selected.getFullYear(), selected.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (!value) return;
+    const selected = parseDateInputValue(value);
+    setDisplayMonth(new Date(selected.getFullYear(), selected.getMonth(), 1));
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  const calendarDays = useMemo(() => buildCalendarDays(displayMonth), [displayMonth]);
+  const weekLabels = ["一", "二", "三", "四", "五", "六", "日"];
+  const monthTitle = `${displayMonth.getFullYear()}年${String(displayMonth.getMonth() + 1).padStart(2, "0")}月`;
+
+  return (
+    <div ref={containerRef} className="relative self-start">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="group inline-flex min-w-[220px] items-center gap-3 overflow-hidden rounded-full border border-white/90 bg-white/85 px-4 py-2.5 text-sm text-[#5f7ea5] shadow-[0_14px_30px_rgba(91,140,255,0.1)] transition hover:bg-white"
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,#eef5ff_0%,#f5f9ff_100%)] text-[#1B8BFA] shadow-[inset_0_0_0_1px_rgba(143,189,255,0.35)]">
+          <CalendarDays className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1 text-left">
+          <span className="block text-[11px] font-semibold tracking-[0.14em] text-[#7c9bc0]">统计日期</span>
+          <span className="mt-0.5 block font-medium text-slate-950">{formatDateDisplay(value)}</span>
+        </span>
+        <ChevronDown className={`h-4 w-4 text-[#8aaed8] transition ${open ? "rotate-180 text-[#1B8BFA]" : "group-hover:text-[#1B8BFA]"}`} />
+      </button>
+
+      {open ? (
+        <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[320px] rounded-[28px] border border-[#d8ebff] bg-white p-4 shadow-[0_24px_60px_rgba(73,123,255,0.16)]">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setDisplayMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e2efff] bg-[#f8fbff] text-[#6f8fb3] transition hover:border-[#bfdcff] hover:text-[#1B8BFA]"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="font-display text-base font-semibold text-slate-950">{monthTitle}</div>
+            <button
+              type="button"
+              onClick={() => setDisplayMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e2efff] bg-[#f8fbff] text-[#6f8fb3] transition hover:border-[#bfdcff] hover:text-[#1B8BFA]"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-medium text-[#8aa4c3]">
+            {weekLabels.map((label) => (
+              <div key={label} className="py-1">
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-2 grid grid-cols-7 gap-2">
+            {calendarDays.map((day) => {
+              const isSelected = value === day.value;
+
+              return (
+                <button
+                  key={day.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(day.value);
+                    setOpen(false);
+                  }}
+                  className={`relative h-10 rounded-2xl text-sm font-medium transition ${
+                    isSelected
+                      ? "bg-[#1B8BFA] text-white shadow-[0_10px_24px_rgba(27,139,250,0.22)]"
+                      : day.inCurrentMonth
+                        ? "bg-[#f8fbff] text-slate-900 hover:bg-[#eaf4ff]"
+                        : "bg-[#f8fbff]/70 text-[#b0bfd4] hover:bg-[#eef5ff]"
+                  }`}
+                >
+                  {day.label}
+                  {day.isToday && !isSelected ? (
+                    <span className="absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[#1B8BFA]" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-[#edf4ff] pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                const today = formatDateInputValue(new Date());
+                onChange(today);
+                setOpen(false);
+              }}
+              className="rounded-full border border-[#dcecff] bg-[#f3f9ff] px-4 py-2 text-sm font-medium text-[#1B8BFA] transition hover:bg-[#e9f4ff]"
+            >
+              今天
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-full px-4 py-2 text-sm font-medium text-[#6f8fb3] transition hover:bg-[#f5f9ff]"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const phoneModelUsagePreset = [
   { name: "iPhone 15 Pro / iOS 18.1", percent: 16.4 },
   { name: "iPhone 14 / iOS 17.6", percent: 13.9 },
@@ -847,6 +1011,7 @@ function CompactWordCloudPanel({
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<ReportTab>("users");
+  const [reportDate, setReportDate] = useState(() => formatDateInputValue(new Date()));
   const [userTrendRange, setUserTrendRange] = useState<TimeRange>("周");
   const [userTrendScope, setUserTrendScope] = useState<UserScope>("users");
   const [pnActiveRange, setPnActiveRange] = useState<ShortTimeRange>("周");
@@ -2139,6 +2304,7 @@ export default function DashboardPage() {
                   </button>
                 ))}
               </div>
+              <ReportDatePicker value={reportDate} onChange={setReportDate} />
             </div>
           </div>
         </section>

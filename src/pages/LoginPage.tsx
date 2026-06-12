@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [appRegion, setAppRegion] = useState<"cn" | "global">("cn");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [error, setError] = useState("");
   const [failedCount, setFailedCount] = useState(0);
@@ -70,6 +71,8 @@ export default function LoginPage() {
     return `${name.slice(0, 2)}***@${domain}`;
   };
 
+  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
   const markLoginFailed = () => {
     const nextFailed = failedCount + 1;
     setFailedCount(nextFailed);
@@ -84,18 +87,22 @@ export default function LoginPage() {
     setError(`账号、密码或邮箱验证码错误，已失败 ${nextFailed} 次。`);
   };
 
-  const submitCredentials = () => {
+  const requestEmailCode = () => {
     if (lockedSeconds > 0) {
       setError(lockMessage);
       return;
     }
-    if (!username.trim() || !password.trim()) {
-      setError("用户名和密码均为必填项。");
+    if (!username.trim() || !password.trim() || !loginEmail.trim()) {
+      setError("用户名、密码和登录邮箱均为必填项。");
+      return;
+    }
+    if (!isValidEmail(loginEmail.trim())) {
+      setError("请输入正确的登录邮箱格式。");
       return;
     }
 
     const matchedAccountEntry = (Object.entries(demoAccounts) as [AppRole, (typeof demoAccounts)[AppRole]][]).find(
-      ([, account]) => username.trim() === account.username && password === account.password,
+      ([, account]) => username.trim() === account.username && password === account.password && loginEmail.trim() === account.email,
     );
 
     if (!matchedAccountEntry) {
@@ -222,6 +229,18 @@ export default function LoginPage() {
                     placeholder="请输入密码"
                   />
                 </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-600">登录邮箱</span>
+                  <input
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    disabled={verifyStep === "email"}
+                    className={`mt-2 w-full rounded-2xl border px-4 py-3.5 text-sm outline-none transition ${
+                      error && !loginEmail.trim() ? "border-rose-300 bg-rose-50" : "border-[#d7e9ff] bg-white focus:border-[#1B8BFA] focus:bg-white"
+                    } disabled:cursor-not-allowed disabled:bg-slate-50`}
+                    placeholder="请输入登录邮箱"
+                  />
+                </label>
                 <div className="grid gap-4 sm:grid-cols-[1fr_168px]">
                   <label className="block">
                     <span className="text-sm font-medium text-slate-600">邮箱验证码</span>
@@ -234,17 +253,17 @@ export default function LoginPage() {
                           ? "border-rose-300 bg-rose-50"
                           : "border-[#d7e9ff] bg-white focus:border-[#1B8BFA] focus:bg-white"
                       } disabled:cursor-not-allowed disabled:bg-slate-50`}
-                      placeholder={verifyStep === "email" ? "请输入邮箱验证码" : "先完成账号密码校验"}
+                      placeholder={verifyStep === "email" ? "请输入邮箱验证码" : "请先获取登录验证码"}
                     />
                   </label>
                   <div className="flex items-end">
                     <button
                       type="button"
-                      disabled={verifyStep !== "email" || resendSeconds > 0}
-                      onClick={resendCode}
+                      disabled={lockedSeconds > 0 || (verifyStep === "email" && resendSeconds > 0)}
+                      onClick={verifyStep === "email" ? resendCode : requestEmailCode}
                       className="flex h-[54px] w-full items-center justify-center rounded-2xl border border-[#dcecff] bg-[#f3f9ff] px-3 text-sm font-semibold text-[#1B8BFA] disabled:cursor-not-allowed disabled:text-[#9abce0]"
                     >
-                      {verifyStep !== "email" ? "校验后发送" : resendSeconds > 0 ? `${resendSeconds}s 后重发` : "重新发送"}
+                      {verifyStep === "email" ? (resendSeconds > 0 ? `${resendSeconds}s 后重发` : "重新发送") : "获取登录验证码"}
                     </button>
                   </div>
                 </div>
@@ -260,7 +279,7 @@ export default function LoginPage() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <div>当前采用账号密码 + 邮箱验证码二次验证。连续 5 次失败后锁定 30 分钟。</div>
+                    <div>当前采用账号密码 + 登录邮箱验证码二次验证。连续 5 次失败后锁定 30 分钟。</div>
                     {verifyStep === "email" && pendingAccount ? (
                       <>
                         <div>验证码已发送至：{maskEmail(pendingAccount.email)}</div>
@@ -281,10 +300,10 @@ export default function LoginPage() {
               <button
                 type="button"
                 disabled={lockedSeconds > 0}
-                onClick={verifyStep === "credentials" ? submitCredentials : submitEmailCode}
+                onClick={submitEmailCode}
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1B8BFA] px-5 py-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(27,139,250,0.22)] transition hover:bg-[#1577d9] disabled:cursor-not-allowed disabled:bg-[#8fc7ff]"
               >
-                {verifyStep === "credentials" ? "下一步" : "验证并登录"}
+                验证并登录
                 <ArrowRight className="h-4 w-4" />
               </button>
 
@@ -294,6 +313,7 @@ export default function LoginPage() {
                   onClick={() => {
                     setVerifyStep("credentials");
                     setPendingRole(null);
+                    setLoginEmail("");
                     setEmailCode("");
                     setError("");
                     setNotice("");
