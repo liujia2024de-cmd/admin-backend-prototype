@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { CalendarDays, ChevronDown, ImageIcon, LayoutTemplate, Link2, Megaphone, PlusCircle, UploadCloud } from "lucide-react";
+import { CalendarDays, ChevronDown, ImageIcon, LayoutTemplate, Link2, Megaphone, PlusCircle, UploadCloud, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -15,7 +15,9 @@ type OperationTab = "popup" | "banner";
 type PopupCampaignItem = {
   id: string;
   name: string;
+  title: string;
   image: string;
+  imagePreviewUrl: string;
   copywriting: string;
   link: string;
   position: string;
@@ -33,10 +35,14 @@ type BannerCampaignItem = {
   id: string;
   name: string;
   image: string;
+  imagePreviewUrl: string;
   link: string;
   title: string;
   subtitle: string;
   position: string;
+  triggerCondition: string;
+  frequency: string;
+  target: string;
   startAt: string;
   endAt: string;
   priority: number;
@@ -61,6 +67,7 @@ type PublishActionState = {
   tab: OperationTab;
   nextStatus: PopupCampaignItem["status"] | BannerCampaignItem["status"];
   name: string;
+  action: "publish" | "offline";
 } | null;
 
 const popupStatusOptions: PopupCampaignItem["status"][] = ["草稿", "进行中", "已结束"];
@@ -68,8 +75,13 @@ const bannerStatusOptions: BannerCampaignItem["status"][] = ["草稿", "已上�
 const popupPositionChoices = ["App首页", "设备首页", "订阅升级页", "AI服务页"];
 const popupTriggerChoices = ["打开App时", "进入设备页时", "进入AI页时", "点击升级入口时"];
 const popupFrequencyChoices = ["每天一次", "每3天一次", "每7天一次", "活动周期仅一次"];
-const popupTargetChoices = ["全量用户", "新注册用户", "高活跃已订阅用户", "流失订阅召回用户"];
+const popupTargetChoices = ["全量用户", "新注册用户", "高活跃已订阅用户", "流失订阅召回用户", "指定SN名单发布"];
 const bannerPositionChoices = ["首页底部", "设备页底部", "AI页顶部", "订阅页顶部"];
+
+const buildMockCampaignImageUrl = (scene: string, title: string) =>
+  `https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=${encodeURIComponent(
+    `mobile app campaign artwork, reptile iot product promotion, ${scene}, ${title}, clean blue visual design, premium marketing banner, realistic lighting, polished interface style`,
+  )}&image_size=landscape_16_9`;
 
 const hashSeed = (value: string) =>
   [...value].reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0);
@@ -112,7 +124,9 @@ const initialPopupCampaigns: PopupCampaignItem[] = Array.from({ length: 8 }, (_,
   return {
     id: `popup-${index + 1}`,
     name: `${base.name}-${suffixes[index]}`,
+    title: index % 2 === 0 ? "限时开通专业版" : "AI 服务限时唤醒",
     image: `${popupPositionChoices[index % popupPositionChoices.length]}KV图`,
+    imagePreviewUrl: buildMockCampaignImageUrl(popupPositionChoices[index % popupPositionChoices.length], suffixes[index]),
     copywriting:
       index % 2 === 0
         ? "开通专业版，解锁 7 天云存、AI 行为识别与精彩剪辑，活动期内限时可见。"
@@ -137,10 +151,14 @@ const initialBannerCampaigns: BannerCampaignItem[] = Array.from({ length: 8 }, (
     id: `banner-${index + 1}`,
     name: `${base.name}-${names[index]}`,
     image: `${bannerPositionChoices[index % bannerPositionChoices.length]}主视觉`,
+    imagePreviewUrl: buildMockCampaignImageUrl(bannerPositionChoices[index % bannerPositionChoices.length], names[index]),
     link: index % 2 === 0 ? "/dashboard?tab=subscription" : "/dashboard?tab=ai",
     title: `${base.title} · ${names[index]}`,
     subtitle: base.subtitle,
     position: bannerPositionChoices[index % bannerPositionChoices.length],
+    triggerCondition: popupTriggerChoices[index % popupTriggerChoices.length],
+    frequency: popupFrequencyChoices[index % popupFrequencyChoices.length],
+    target: popupTargetChoices[index % popupTargetChoices.length],
     startAt: `2026-06-${String(3 + index).padStart(2, "0")}T09:00`,
     endAt: `2026-06-${String(20 + (index % 8)).padStart(2, "0")}T23:59`,
     priority: 50 + index * 6,
@@ -177,12 +195,15 @@ export default function OperationsPage() {
   const [publishAction, setPublishAction] = useState<PublishActionState>(null);
   const [testPublishOpen, setTestPublishOpen] = useState(false);
   const [testSnInput, setTestSnInput] = useState("");
+  const [imagePreview, setImagePreview] = useState<{ name: string; url: string } | null>(null);
   const popupImageInputRef = useRef<HTMLInputElement | null>(null);
   const bannerImageInputRef = useRef<HTMLInputElement | null>(null);
   const [popupDraft, setPopupDraft] = useState<PopupCampaignItem>({
     id: "",
     name: "",
+    title: "",
     image: "",
+    imagePreviewUrl: "",
     copywriting: "",
     link: "",
     position: "App首页",
@@ -199,10 +220,14 @@ export default function OperationsPage() {
     id: "",
     name: "",
     image: "",
+    imagePreviewUrl: "",
     link: "",
     title: "",
     subtitle: "",
     position: "首页底部",
+    triggerCondition: "打开App时",
+    frequency: "每天一次",
+    target: "全量用户",
     startAt: "2026-06-10T10:00",
     endAt: "2026-06-20T23:59",
     priority: 50,
@@ -311,7 +336,9 @@ export default function OperationsPage() {
       setPopupDraft({
         id: "",
         name: "",
+        title: "",
         image: "",
+        imagePreviewUrl: "",
         copywriting: "",
         link: "",
         position: "App首页",
@@ -329,10 +356,14 @@ export default function OperationsPage() {
         id: "",
         name: "",
         image: "",
+        imagePreviewUrl: "",
         link: "",
         title: "",
         subtitle: "",
         position: "首页底部",
+        triggerCondition: "打开App时",
+        frequency: "每天一次",
+        target: "全量用户",
         startAt: "2026-06-10T10:00",
         endAt: "2026-06-20T23:59",
         priority: 50,
@@ -365,10 +396,11 @@ export default function OperationsPage() {
   const handleImageUpload = (event: ChangeEvent<HTMLInputElement>, tab: OperationTab) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
     if (tab === "popup") {
-      setPopupDraft((current) => ({ ...current, image: file.name }));
+      setPopupDraft((current) => ({ ...current, image: file.name, imagePreviewUrl: previewUrl }));
     } else {
-      setBannerDraft((current) => ({ ...current, image: file.name }));
+      setBannerDraft((current) => ({ ...current, image: file.name, imagePreviewUrl: previewUrl }));
     }
     event.target.value = "";
   };
@@ -383,11 +415,23 @@ export default function OperationsPage() {
         showToast({ tone: "warning", title: "请上传活动配图", description: "弹窗活动需要上传活动配图后才能保存。" });
         return;
       }
+      if (!popupDraft.link.trim()) {
+        showToast({ tone: "warning", title: "请填写活动详情链接", description: "弹窗活动需要配置活动详情链接后才能保存。" });
+        return;
+      }
       const nextRow = { ...popupDraft, id: editingId ?? `popup-${Date.now()}` };
       setPopupRows((current) => (editingId ? current.map((item) => (item.id === editingId ? nextRow : item)) : [nextRow, ...current]));
     } else {
-      if (!bannerDraft.name.trim() || !bannerDraft.title.trim()) {
-        showToast({ tone: "warning", title: "请补全 Banner 信息", description: "至少需要填写活动名称和标题。" });
+      if (!bannerDraft.name.trim()) {
+        showToast({ tone: "warning", title: "请填写活动名称", description: "Banner 活动名称不能为空。" });
+        return;
+      }
+      if (!bannerDraft.image.trim()) {
+        showToast({ tone: "warning", title: "请上传活动配图", description: "Banner 活动需要上传活动配图后才能保存。" });
+        return;
+      }
+      if (!bannerDraft.link.trim()) {
+        showToast({ tone: "warning", title: "请填写活动详情链接", description: "Banner 活动需要配置活动详情链接后才能保存。" });
         return;
       }
       const nextRow = { ...bannerDraft, id: editingId ?? `banner-${Date.now()}` };
@@ -411,11 +455,10 @@ export default function OperationsPage() {
       }
       const nextStatus = target.status === "草稿" ? "进行中" : "已结束";
       if (target.status === "草稿") {
-        setPublishAction({ id, tab, nextStatus, name: target.name });
+        setPublishAction({ id, tab, nextStatus, name: target.name, action: "publish" });
         return;
       }
-      setPopupRows((current) => current.map((item) => (item.id === id ? { ...item, status: nextStatus } : item)));
-      showToast({ tone: "success", title: "活动已下线", description: `${target.name} 已结束投放。` });
+      setPublishAction({ id, tab, nextStatus, name: target.name, action: "offline" });
       return;
     }
 
@@ -427,21 +470,28 @@ export default function OperationsPage() {
     }
     const nextStatus = target.status === "草稿" ? "已上线" : "已下线";
     if (target.status === "草稿") {
-      setPublishAction({ id, tab, nextStatus, name: target.name });
+      setPublishAction({ id, tab, nextStatus, name: target.name, action: "publish" });
       return;
     }
-    setBannerRows((current) => current.map((item) => (item.id === id ? { ...item, status: nextStatus } : item)));
-    showToast({ tone: "success", title: "Banner 已下线", description: `${target.name} 已停止展示。` });
+    setPublishAction({ id, tab, nextStatus, name: target.name, action: "offline" });
   };
 
   const confirmPublishAction = () => {
     if (!publishAction) return;
     if (publishAction.tab === "popup") {
       setPopupRows((current) => current.map((item) => (item.id === publishAction.id ? { ...item, status: publishAction.nextStatus as PopupCampaignItem["status"] } : item)));
-      showToast({ tone: "success", title: "活动已发布", description: `${publishAction.name} 已开始投放。` });
+      showToast({
+        tone: "success",
+        title: publishAction.action === "publish" ? "活动已发布" : "活动已下线",
+        description: publishAction.action === "publish" ? `${publishAction.name} 已开始投放。` : `${publishAction.name} 已提前结束投放。`,
+      });
     } else {
       setBannerRows((current) => current.map((item) => (item.id === publishAction.id ? { ...item, status: publishAction.nextStatus as BannerCampaignItem["status"] } : item)));
-      showToast({ tone: "success", title: "Banner 已上线", description: `${publishAction.name} 已开始投放。` });
+      showToast({
+        tone: "success",
+        title: publishAction.action === "publish" ? "Banner 已上线" : "Banner 已下线",
+        description: publishAction.action === "publish" ? `${publishAction.name} 已开始投放。` : `${publishAction.name} 已提前结束展示。`,
+      });
     }
     setPublishAction(null);
   };
@@ -519,7 +569,7 @@ export default function OperationsPage() {
               </button>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr_1fr_auto_auto]">
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr_1fr_auto]">
               <input
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
@@ -591,9 +641,6 @@ export default function OperationsPage() {
               <button type="button" className="rounded-2xl bg-[#1B8BFA] px-5 py-3 text-sm font-medium text-white" onClick={() => setDateOpen(false)}>
                 查询
               </button>
-              <button type="button" className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700" onClick={resetFilters}>
-                重置
-              </button>
             </div>
           </div>
         </Panel>
@@ -604,7 +651,7 @@ export default function OperationsPage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
-                    {["活动名称", "配图/文案", "位置", "触发条件", "频率", "目标用户", "开始时间", "结束时间", "优先级", "状态", "效果概览", "操作"].map((head) => (
+                    {["活动名称", "配图/文案", "目标用户", "开始时间", "结束时间", "优先级", "状态", "操作"].map((head) => (
                       <th key={head} className="px-5 py-4 font-medium">
                         {head}
                       </th>
@@ -632,21 +679,12 @@ export default function OperationsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4">{item.position}</td>
-                      <td className="px-5 py-4">{item.triggerCondition}</td>
-                      <td className="px-5 py-4">{item.frequency}</td>
                       <td className="px-5 py-4">{item.target}</td>
                       <td className="px-5 py-4">{item.startAt.replace("T", " ")}</td>
                       <td className="px-5 py-4">{item.endAt.replace("T", " ")}</td>
                       <td className="px-5 py-4">{item.priority}</td>
                       <td className="px-5 py-4">
                         <StatusBadge value={item.status} tone={getStatusTone(item.status)} />
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="text-slate-900">{item.confirmClicks} 次确认</div>
-                        <div className="mt-1 text-xs text-[#6f8fb3]">
-                          曝光 {insight.exposureUsers.toLocaleString()} · 查看率 {insight.clickThroughRate}%
-                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex gap-2">
@@ -707,7 +745,7 @@ export default function OperationsPage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
-                    {["活动名称", "配图/跳转", "位置", "标题", "副标题", "开始时间", "结束时间", "优先级", "状态", "效果概览", "操作"].map((head) => (
+                    {["活动名称", "主标题/副标题/配图", "开始时间", "结束时间", "优先级", "状态", "操作"].map((head) => (
                       <th key={head} className="px-5 py-4 font-medium">
                         {head}
                       </th>
@@ -727,28 +765,20 @@ export default function OperationsPage() {
                             <ImageIcon className="h-4 w-4" />
                           </div>
                           <div className="max-w-[220px]">
-                            <div className="line-clamp-1 text-slate-700">{item.image}</div>
+                            <div className="line-clamp-1 font-medium text-slate-900">{item.title || "-"}</div>
+                            <div className="mt-1 line-clamp-1 text-xs text-[#6f8fb3]">{item.subtitle || "未填写副标题"}</div>
                             <div className="mt-1 flex items-center gap-1 text-xs text-[#6f8fb3]">
-                              <Link2 className="h-3.5 w-3.5" />
-                              {item.link}
+                              <ImageIcon className="h-3.5 w-3.5" />
+                              {item.image}
                             </div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4">{item.position}</td>
-                      <td className="px-5 py-4">{item.title}</td>
-                      <td className="px-5 py-4">{item.subtitle}</td>
                       <td className="px-5 py-4">{item.startAt.replace("T", " ")}</td>
                       <td className="px-5 py-4">{item.endAt.replace("T", " ")}</td>
                       <td className="px-5 py-4">{item.priority}</td>
                       <td className="px-5 py-4">
                         <StatusBadge value={item.status} tone={getStatusTone(item.status)} />
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="text-slate-900">{item.clicks} 次点击</div>
-                        <div className="mt-1 text-xs text-[#6f8fb3]">
-                          曝光 {insight.exposureUsers.toLocaleString()} · 查看率 {insight.clickThroughRate}%
-                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex gap-2">
@@ -827,107 +857,169 @@ export default function OperationsPage() {
           }
         >
           {activeTab === "popup" ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              <input value={popupDraft.name} onChange={(event) => setPopupDraft((current) => ({ ...current, name: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="活动名称" />
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <input ref={popupImageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleImageUpload(event, "popup")} />
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs text-[#7395bc]">活动配图</div>
-                    <div className="mt-1 truncate text-sm text-slate-700">{popupDraft.image || "暂未上传配图"}</div>
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动名称（供内部查看）</div>
+                <input value={popupDraft.name} onChange={(event) => setPopupDraft((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="请输入活动名称" />
+              </div>
+
+              <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
+                <div className="text-sm font-medium text-slate-900">用户可见内容</div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <input value={popupDraft.title} onChange={(event) => setPopupDraft((current) => ({ ...current, title: event.target.value }))} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none md:col-span-2" placeholder="活动标题（非必填）" />
+                  <textarea value={popupDraft.copywriting} onChange={(event) => setPopupDraft((current) => ({ ...current, copywriting: event.target.value }))} className="min-h-[120px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none md:col-span-2" placeholder="活动正文描述（非必填）" />
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 md:col-span-2">
+                    <input ref={popupImageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleImageUpload(event, "popup")} />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs text-[#7395bc]">上传活动配图（必填）</div>
+                        <div className="mt-1 truncate text-sm text-slate-700">{popupDraft.image || "暂未上传配图"}</div>
+                      </div>
+                      <button type="button" className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-3 py-2 text-sm font-medium text-[#1B8BFA]" onClick={() => popupImageInputRef.current?.click()}>
+                        <UploadCloud className="h-4 w-4" />
+                        上传配图
+                      </button>
+                    </div>
                   </div>
-                  <button type="button" className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-3 py-2 text-sm font-medium text-[#1B8BFA]" onClick={() => popupImageInputRef.current?.click()}>
-                    <UploadCloud className="h-4 w-4" />
-                    上传配图
-                  </button>
+                  <input value={popupDraft.link} onChange={(event) => setPopupDraft((current) => ({ ...current, link: event.target.value }))} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none md:col-span-2" placeholder="添加活动详情链接（必填）" />
                 </div>
               </div>
-              <textarea value={popupDraft.copywriting} onChange={(event) => setPopupDraft((current) => ({ ...current, copywriting: event.target.value }))} className="min-h-[120px] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none md:col-span-2" placeholder="弹窗文案" />
-              <input value={popupDraft.link} onChange={(event) => setPopupDraft((current) => ({ ...current, link: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none md:col-span-2" placeholder="跳转链接" />
-              <div className="relative">
-                <select value={popupDraft.position} onChange={(event) => setPopupDraft((current) => ({ ...current, position: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
-                  {popupPositionChoices.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
+                <div className="text-sm font-medium text-slate-900">活动显示设置</div>
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div className="relative">
+                    <select value={popupDraft.position} onChange={(event) => setPopupDraft((current) => ({ ...current, position: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                      {popupPositionChoices.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                  <div className="relative">
+                    <select value={popupDraft.triggerCondition} onChange={(event) => setPopupDraft((current) => ({ ...current, triggerCondition: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                      {popupTriggerChoices.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                  <div className="relative">
+                    <select value={popupDraft.frequency} onChange={(event) => setPopupDraft((current) => ({ ...current, frequency: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                      {popupFrequencyChoices.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
               </div>
-              <div className="relative">
-                <select value={popupDraft.triggerCondition} onChange={(event) => setPopupDraft((current) => ({ ...current, triggerCondition: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
-                  {popupTriggerChoices.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动目标人群</div>
+                <div className="relative">
+                  <select value={popupDraft.target} onChange={(event) => setPopupDraft((current) => ({ ...current, target: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                    {popupTargetChoices.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                </div>
               </div>
-              <div className="relative">
-                <select value={popupDraft.frequency} onChange={(event) => setPopupDraft((current) => ({ ...current, frequency: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
-                  {popupFrequencyChoices.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动有效时间</div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <input type="datetime-local" value={popupDraft.startAt} onChange={(event) => setPopupDraft((current) => ({ ...current, startAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
+                  <input type="datetime-local" value={popupDraft.endAt} onChange={(event) => setPopupDraft((current) => ({ ...current, endAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
+                </div>
               </div>
-              <div className="relative">
-                <select value={popupDraft.target} onChange={(event) => setPopupDraft((current) => ({ ...current, target: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
-                  {popupTargetChoices.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动优先级</div>
+                <input type="number" value={popupDraft.priority} onChange={(event) => setPopupDraft((current) => ({ ...current, priority: Number(event.target.value) }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="填写优先级，数字越大越优先" />
               </div>
-              <input type="datetime-local" value={popupDraft.startAt} onChange={(event) => setPopupDraft((current) => ({ ...current, startAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
-              <input type="datetime-local" value={popupDraft.endAt} onChange={(event) => setPopupDraft((current) => ({ ...current, endAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="text-xs text-[#7395bc]">填写优先级</div>
-                <input type="number" value={popupDraft.priority} onChange={(event) => setPopupDraft((current) => ({ ...current, priority: Number(event.target.value) }))} className="mt-2 w-full bg-transparent text-sm outline-none" placeholder="数字越大越优先，例如 80" />
-              </div>
-              <div className="rounded-2xl border border-[#e5f1ff] bg-[#fbfdff] px-4 py-3 text-sm text-[#6f8fb3]">当前状态由发布、下线和测试发布流程自动控制，新建活动默认保存为草稿。</div>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <input value={bannerDraft.name} onChange={(event) => setBannerDraft((current) => ({ ...current, name: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="活动名称" />
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <input ref={bannerImageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleImageUpload(event, "banner")} />
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs text-[#7395bc]">Banner 配图</div>
-                    <div className="mt-1 truncate text-sm text-slate-700">{bannerDraft.image || "暂未上传配图"}</div>
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动名称（供内部查看）</div>
+                <input value={bannerDraft.name} onChange={(event) => setBannerDraft((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="请输入活动名称" />
+              </div>
+
+              <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
+                <div className="text-sm font-medium text-slate-900">用户可见内容</div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <input value={bannerDraft.title} onChange={(event) => setBannerDraft((current) => ({ ...current, title: event.target.value }))} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none md:col-span-2" placeholder="活动标题（非必填）" />
+                  <textarea value={bannerDraft.subtitle} onChange={(event) => setBannerDraft((current) => ({ ...current, subtitle: event.target.value }))} className="min-h-[120px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none md:col-span-2" placeholder="活动正文描述（非必填）" />
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 md:col-span-2">
+                    <input ref={bannerImageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleImageUpload(event, "banner")} />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs text-[#7395bc]">上传活动配图（必填）</div>
+                        <div className="mt-1 truncate text-sm text-slate-700">{bannerDraft.image || "暂未上传配图"}</div>
+                      </div>
+                      <button type="button" className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-3 py-2 text-sm font-medium text-[#1B8BFA]" onClick={() => bannerImageInputRef.current?.click()}>
+                        <UploadCloud className="h-4 w-4" />
+                        上传配图
+                      </button>
+                    </div>
                   </div>
-                  <button type="button" className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-3 py-2 text-sm font-medium text-[#1B8BFA]" onClick={() => bannerImageInputRef.current?.click()}>
-                    <UploadCloud className="h-4 w-4" />
-                    上传配图
-                  </button>
+                  <input value={bannerDraft.link} onChange={(event) => setBannerDraft((current) => ({ ...current, link: event.target.value }))} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none md:col-span-2" placeholder="添加活动详情链接（必填）" />
                 </div>
               </div>
-              <input value={bannerDraft.title} onChange={(event) => setBannerDraft((current) => ({ ...current, title: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="标题" />
-              <input value={bannerDraft.subtitle} onChange={(event) => setBannerDraft((current) => ({ ...current, subtitle: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="副标题" />
-              <input value={bannerDraft.link} onChange={(event) => setBannerDraft((current) => ({ ...current, link: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none md:col-span-2" placeholder="跳转链接" />
-              <div className="relative">
-                <select value={bannerDraft.position} onChange={(event) => setBannerDraft((current) => ({ ...current, position: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
-                  {bannerPositionChoices.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
+                <div className="text-sm font-medium text-slate-900">活动显示设置</div>
+                <div className="mt-4 space-y-2">
+                  <div className="text-xs text-[#7395bc]">Banner位选择</div>
+                  <div className="relative">
+                    <select value={bannerDraft.position} onChange={(event) => setBannerDraft((current) => ({ ...current, position: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                      {bannerPositionChoices.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="text-xs text-[#7395bc]">填写优先级</div>
-                <input type="number" value={bannerDraft.priority} onChange={(event) => setBannerDraft((current) => ({ ...current, priority: Number(event.target.value) }))} className="mt-2 w-full bg-transparent text-sm outline-none" placeholder="数字越大越优先，例如 80" />
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动目标人群</div>
+                <div className="relative">
+                  <select value={bannerDraft.target} onChange={(event) => setBannerDraft((current) => ({ ...current, target: event.target.value }))} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                    {popupTargetChoices.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                </div>
               </div>
-              <input type="datetime-local" value={bannerDraft.startAt} onChange={(event) => setBannerDraft((current) => ({ ...current, startAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
-              <input type="datetime-local" value={bannerDraft.endAt} onChange={(event) => setBannerDraft((current) => ({ ...current, endAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
-              <div className="rounded-2xl border border-[#e5f1ff] bg-[#fbfdff] px-4 py-3 text-sm text-[#6f8fb3] md:col-span-2">Banner 状态通过上线、下线按钮控制，新建活动默认保存为草稿，避免表单里直接改状态造成发布误操作。</div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动有效时间</div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <input type="datetime-local" value={bannerDraft.startAt} onChange={(event) => setBannerDraft((current) => ({ ...current, startAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
+                  <input type="datetime-local" value={bannerDraft.endAt} onChange={(event) => setBannerDraft((current) => ({ ...current, endAt: event.target.value }))} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">活动优先级</div>
+                <input type="number" value={bannerDraft.priority} onChange={(event) => setBannerDraft((current) => ({ ...current, priority: Number(event.target.value) }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="填写优先级，数字越大越优先" />
+              </div>
             </div>
           )}
         </Drawer>
@@ -972,8 +1064,36 @@ export default function OperationsPage() {
                     <div className="mt-1 font-medium text-slate-950">
                       {detailCampaign.item.startAt.replace("T", " ")} 至 {detailCampaign.item.endAt.replace("T", " ")}
                     </div>
-                    <div className="mt-4 text-xs text-[#7395bc]">最佳时段</div>
-                    <div className="mt-1 font-medium text-slate-950">{currentCampaignInsight.bestWindow}</div>
+                  </div>
+                  <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
+                    <div className="text-xs text-[#7395bc]">活动配图</div>
+                    <div className="mt-3 flex items-start gap-3">
+                      <button
+                        type="button"
+                        className="group relative h-14 w-14 overflow-hidden rounded-2xl border border-[#d8ebff] bg-[#eef6ff]"
+                        onClick={() => setImagePreview({ name: detailCampaign.item.image, url: detailCampaign.item.imagePreviewUrl })}
+                      >
+                        {detailCampaign.item.imagePreviewUrl ? (
+                          <img src={detailCampaign.item.imagePreviewUrl} alt={detailCampaign.item.image} className="h-full w-full object-cover transition group-hover:scale-105" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[#1B8BFA]">
+                            <ImageIcon className="h-5 w-5" />
+                          </div>
+                        )}
+                      </button>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-950">{detailCampaign.item.image}</div>
+                        <button
+                          type="button"
+                          className="mt-1 text-xs font-medium text-[#1B8BFA]"
+                          onClick={() => setImagePreview({ name: detailCampaign.item.image, url: detailCampaign.item.imagePreviewUrl })}
+                        >
+                          点击查看配图
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-4 text-xs text-[#7395bc]">跳转链接</div>
+                    <div className="mt-1 break-all font-medium text-slate-950">{detailCampaign.item.link}</div>
                   </div>
                   <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
                     <div className="text-xs text-[#7395bc]">目标用户</div>
@@ -982,12 +1102,6 @@ export default function OperationsPage() {
                     </div>
                     <div className="mt-4 text-xs text-[#7395bc]">优先级</div>
                     <div className="mt-1 font-medium text-slate-950">{detailCampaign.item.priority}</div>
-                  </div>
-                  <div className="rounded-[24px] border border-[#e5f1ff] bg-[#fbfdff] p-4">
-                    <div className="text-xs text-[#7395bc]">跳转链接</div>
-                    <div className="mt-1 break-all font-medium text-slate-950">{detailCampaign.item.link}</div>
-                    <div className="mt-4 text-xs text-[#7395bc]">高反馈人群</div>
-                    <div className="mt-1 font-medium text-slate-950">{currentCampaignInsight.topSegment}</div>
                   </div>
                 </div>
               </Panel>
@@ -1014,34 +1128,36 @@ export default function OperationsPage() {
                 </div>
               </Panel>
 
-              <Panel title="效果解读与动作建议" description="给运营同学一个可直接拿去复盘的判断口径。">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-[24px] border border-[#d8ebff] bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9ff_100%)] p-4">
-                    <div className="text-xs text-[#7395bc]">建议动作</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-950">{currentCampaignInsight.recommendedAction}</div>
-                  </div>
-                  <div className="rounded-[24px] border border-[#d8ebff] bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9ff_100%)] p-4">
-                    <div className="text-xs text-[#7395bc]">复盘口径</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-950">
-                      建议至少同时看曝光用户数、点击查看率、关闭率三项，避免只看点击量导致误判投放质量。
-                    </div>
-                  </div>
-                </div>
-              </Panel>
             </div>
           ) : null}
         </Drawer>
 
         <ConfirmModal
           open={Boolean(publishAction)}
-          title={publishAction?.tab === "popup" ? "确认发布弹窗活动" : "确认上线 Banner 活动"}
+          title={
+            publishAction?.action === "offline"
+              ? publishAction?.tab === "popup"
+                ? "确认下线弹窗活动"
+                : "确认下线 Banner 活动"
+              : publishAction?.tab === "popup"
+                ? "确认发布弹窗活动"
+                : "确认上线 Banner 活动"
+          }
           description={
             publishAction
-              ? `确认后，${publishAction.name} 将立即进入${publishAction.tab === "popup" ? "弹窗" : "Banner"}投放状态，请确认活动内容、投放时间和跳转链接已检查无误。`
+              ? publishAction.action === "offline"
+                ? `是否要提前结束活动“${publishAction.name}”？确认后，该活动将立即停止${publishAction.tab === "popup" ? "弹窗" : "Banner"}投放。`
+                : `确认后，${publishAction.name} 将立即进入${publishAction.tab === "popup" ? "弹窗" : "Banner"}投放状态，请确认活动内容、投放时间和跳转链接已检查无误。`
               : ""
           }
-          confirmText={publishAction?.tab === "popup" ? "确认发布" : "确认上线"}
-          cancelText="再检查一下"
+          confirmText={
+            publishAction?.action === "offline"
+              ? "确认提前结束"
+              : publishAction?.tab === "popup"
+                ? "确认发布"
+                : "确认上线"
+          }
+          cancelText={publishAction?.action === "offline" ? "暂不下线" : "再检查一下"}
           onCancel={() => setPublishAction(null)}
           onConfirm={confirmPublishAction}
         />
@@ -1069,6 +1185,32 @@ export default function OperationsPage() {
             />
           </div>
         </ConfirmModal>
+
+        {imagePreview ? (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/65 p-6 backdrop-blur-sm">
+            <button className="absolute inset-0" aria-label="关闭图片预览" onClick={() => setImagePreview(null)} />
+            <div className="relative z-10 w-full max-w-4xl overflow-hidden rounded-[28px] border border-[#d8ebff] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)]">
+              <div className="flex items-center justify-between border-b border-[#e8f3ff] px-5 py-4">
+                <div>
+                  <div className="text-sm font-semibold text-slate-950">活动配图预览</div>
+                  <div className="mt-1 text-xs text-[#6f8fb3]">{imagePreview.name}</div>
+                </div>
+                <button className="rounded-2xl border border-[#d7e9ff] p-2 text-[#5d8fc5] transition hover:bg-[#f2f8ff] hover:text-[#1B8BFA]" onClick={() => setImagePreview(null)}>
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="bg-[#f7fbff] p-5">
+                <div className="overflow-hidden rounded-[24px] bg-white">
+                  {imagePreview.url ? (
+                    <img src={imagePreview.url} alt={imagePreview.name} className="max-h-[72vh] w-full object-contain bg-[#eef6ff]" />
+                  ) : (
+                    <div className="flex h-[320px] items-center justify-center text-[#6f8fb3]">暂无可预览配图</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </AppShell>
   );

@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { DeviceReportTable, type DeviceReportRow } from "@/components/device/DeviceReportTable";
 import { Panel } from "@/components/ui/Panel";
-import { devices, users } from "@/data/mock";
+import { devices, logFiles, users } from "@/data/mock";
 
 const cameraRows = [
   ["设备使用宠物", "豹纹守宫 / 育幼缸 1"],
@@ -55,6 +55,9 @@ export default function CameraDevicePage() {
     users.find((user) => user.phone === cameraDevice.userPhone) ??
     users.find((user) => user.email === cameraDevice.userEmail);
   const location = boundUser?.region ?? "-";
+  const deviceLogs = logFiles.filter((item) => item.deviceSn === cameraDevice.snCode);
+  const totalLogSize = deviceLogs.reduce((sum, item) => sum + Number.parseInt(item.fileSize, 10), 0);
+  const latestLogTime = deviceLogs[0]?.uploadTime ?? "-";
 
   return (
     <AppShell>
@@ -127,20 +130,27 @@ export default function CameraDevicePage() {
         </div>
 
         <Panel title="设备日志记录">
-          <div className="space-y-3 text-sm">
-            {[
-              ["2026-06-02 09:18", "18MB", "下载日志"],
-              ["2026-06-01 11:06", "25MB", "下载日志"],
-              ["2026-05-31 20:42", "31MB", "下载日志"],
-            ].map(([time, size, action]) => (
-              <div key={time} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-                <div>
-                  <div className="font-medium text-slate-900">{time}</div>
-                  <div className="text-xs text-slate-500">日志大小 {size}</div>
-                </div>
-                <button className="rounded-full bg-[#1B8BFA] px-3 py-1.5 text-xs font-medium text-white">{action}</button>
+          <div className="flex flex-col gap-4 rounded-[24px] border border-[#e6f1ff] bg-[linear-gradient(180deg,#f9fcff_0%,#ffffff_100%)] px-5 py-5 md:flex-row md:items-center md:justify-between">
+            <div className="grid flex-1 gap-4 sm:grid-cols-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7b9bc2]">日志总数</div>
+                <div className="mt-2 text-2xl font-semibold text-slate-950">{deviceLogs.length}</div>
               </div>
-            ))}
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7b9bc2]">累计大小</div>
+                <div className="mt-2 text-2xl font-semibold text-slate-950">{totalLogSize}MB</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7b9bc2]">最近上传</div>
+                <div className="mt-2 text-sm font-medium text-slate-900">{latestLogTime}</div>
+              </div>
+            </div>
+            <Link
+              to={`/logs?keyword=${encodeURIComponent(cameraDevice.snCode)}`}
+              className="inline-flex w-fit items-center justify-center rounded-full bg-[#1B8BFA] px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(27,139,250,0.18)] transition hover:bg-[#1577d9]"
+            >
+              查看日志
+            </Link>
           </div>
         </Panel>
 

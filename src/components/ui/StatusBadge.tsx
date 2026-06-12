@@ -13,7 +13,7 @@ const toneMap = {
 
 export function StatusBadge({ value, tone = "slate" }: StatusBadgeProps) {
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${toneMap[tone]}`}>
+    <span className={`inline-flex w-fit self-start rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${toneMap[tone]}`}>
       {value}
     </span>
   );

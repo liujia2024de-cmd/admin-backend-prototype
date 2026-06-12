@@ -387,7 +387,7 @@ export default function UsersPage() {
                         <td className="px-5 py-4 text-slate-700">{user.deviceCount}</td>
                         <td className="px-5 py-4 text-slate-700">{user.registeredAt}</td>
                         <td className="px-5 py-4">
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge value={getUserActivityLevel(user.lastActiveAt)} tone={getUserActivityTone(getUserActivityLevel(user.lastActiveAt))} />
                             {getUserActivitySecondaryTag(user.lastActiveAt) ? (
                               <span className="inline-flex w-fit rounded-full bg-[#eef6ff] px-3 py-1 text-xs font-medium text-[#1B8BFA]">

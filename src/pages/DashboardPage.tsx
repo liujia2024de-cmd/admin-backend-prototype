@@ -2473,18 +2473,7 @@ export default function DashboardPage() {
                 <StatCard
                   label="近24小时高活跃用户"
                   value={`${highActivityInsight.highActiveCount.toLocaleString()}人`}
-                  subtext={
-                    <div className="rounded-[20px] border border-white/70 bg-white/70 p-3 text-[#5f84ad] shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
-                      <div className="flex items-center justify-between gap-3 border-b border-[#dbeaff] pb-2">
-                        <span>占全部用户</span>
-                        <span className="text-sm font-semibold text-slate-950">{highActivityInsight.highActiveShare}%</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <span>活跃层内占比</span>
-                        <span className="text-sm font-semibold text-slate-950">{highActivityInsight.highActiveWithinActiveShare}%</span>
-                      </div>
-                    </div>
-                  }
+                  subtext={`占全部用户 ${highActivityInsight.highActiveShare}%`}
                   tone="teal"
                 />
               </div>

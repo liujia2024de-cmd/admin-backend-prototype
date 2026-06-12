@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { DeviceReportTable, type DeviceReportRow } from "@/components/device/DeviceReportTable";
 import { Panel } from "@/components/ui/Panel";
-import { devices, users } from "@/data/mock";
+import { devices, logFiles, users } from "@/data/mock";
 
 const groups = [
   {
@@ -62,6 +62,11 @@ const centralReportRows: DeviceReportRow[] = [
   { id: "1694", time: "2026-06-06 08:42:10.512", type: "设备自动上报", field: "实时湿度", value: "48.1%", source: "设备本身" },
 ];
 
+const linkedAccessories = [
+  { name: "循环风扇", pnCode: "FAN-CTRL-02", snCode: "FAN20260608021", status: "在线" },
+  { name: "卤素日光加热灯", pnCode: "HEAT-LAMP-05", snCode: "LMP20260608014", status: "在线" },
+];
+
 export default function CentralDevicePage() {
   const { id } = useParams();
   const centralDevice =
@@ -71,15 +76,9 @@ export default function CentralDevicePage() {
     users.find((user) => user.phone === centralDevice.userPhone) ??
     users.find((user) => user.email === centralDevice.userEmail);
   const location = boundUser?.region ?? "-";
-  const linkedDevices = devices.filter((device) => {
-    if (device.id === centralDevice.id || device.type === "central_control") return false;
-
-    return (
-      device.userPhone === centralDevice.userPhone ||
-      device.userEmail === centralDevice.userEmail ||
-      (boundUser ? device.userPhone === boundUser.phone || device.userEmail === boundUser.email : false)
-    );
-  });
+  const deviceLogs = logFiles.filter((item) => item.deviceSn === centralDevice.snCode);
+  const totalLogSize = deviceLogs.reduce((sum, item) => sum + Number.parseInt(item.fileSize, 10), 0);
+  const latestLogTime = deviceLogs[0]?.uploadTime ?? "-";
 
   return (
     <AppShell>
@@ -140,57 +139,53 @@ export default function CentralDevicePage() {
         </div>
 
         <Panel title="关联设备列表" padded={false}>
-          {linkedDevices.length === 0 ? (
-            <div className="px-5 py-5 text-sm text-slate-500">当前没有关联到该中控的子设备。</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="brand-table min-w-full text-left text-sm">
-                <thead>
-                  <tr>
-                    {["子设备名称", "PN号", "SN号", "操作"].map((head) => (
-                      <th key={head} className="px-5 py-4 font-medium">
-                        {head}
-                      </th>
-                    ))}
+          <div className="overflow-x-auto">
+            <table className="brand-table min-w-full text-left text-sm">
+              <thead>
+                <tr>
+                  {["子设备名称", "PN号", "SN号", "设备状态"].map((head) => (
+                    <th key={head} className="px-5 py-4 font-medium">
+                      {head}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {linkedAccessories.map((device, index) => (
+                  <tr key={device.snCode} className={index !== linkedAccessories.length - 1 ? "border-b border-[#eaf4ff]" : ""}>
+                    <td className="px-5 py-4 font-medium text-slate-900">{device.name}</td>
+                    <td className="px-5 py-4">{device.pnCode}</td>
+                    <td className="px-5 py-4">{device.snCode}</td>
+                    <td className="px-5 py-4">{device.status}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {linkedDevices.map((device, index) => {
-                    const detailPath =
-                      device.type === "camera" ? `/devices/camera/${device.id}` : `/devices/central/${device.id}`;
-
-                    return (
-                      <tr key={device.id} className={index !== linkedDevices.length - 1 ? "border-b border-[#eaf4ff]" : ""}>
-                        <td className="px-5 py-4 font-medium text-slate-900">{device.deviceName}</td>
-                        <td className="px-5 py-4">{device.pnCode}</td>
-                        <td className="px-5 py-4">{device.snCode}</td>
-                        <td className="px-5 py-4">
-                          <Link to={detailPath} className="rounded-full bg-[#1B8BFA] px-3 py-1.5 text-xs font-medium text-white shadow-[0_10px_18px_rgba(27,139,250,0.18)]">
-                            查看设备详情
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Panel>
 
         <Panel title="设备日志记录">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {[
-              ["2026-06-02 08:22", "36MB"],
-              ["2026-06-01 10:03", "22MB"],
-              ["2026-05-31 23:09", "18MB"],
-            ].map(([time, size]) => (
-              <div key={time} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
-                <div className="text-sm font-medium text-slate-900">{time}</div>
-                <div className="mt-1 text-xs text-slate-500">日志大小 {size}</div>
-                <button className="mt-4 rounded-full bg-[#1B8BFA] px-3 py-1.5 text-xs font-medium text-white">下载日志</button>
+          <div className="flex flex-col gap-4 rounded-[24px] border border-[#e6f1ff] bg-[linear-gradient(180deg,#f9fcff_0%,#ffffff_100%)] px-5 py-5 md:flex-row md:items-center md:justify-between">
+            <div className="grid flex-1 gap-4 sm:grid-cols-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7b9bc2]">日志总数</div>
+                <div className="mt-2 text-2xl font-semibold text-slate-950">{deviceLogs.length}</div>
               </div>
-            ))}
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7b9bc2]">累计大小</div>
+                <div className="mt-2 text-2xl font-semibold text-slate-950">{totalLogSize}MB</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7b9bc2]">最近上传</div>
+                <div className="mt-2 text-sm font-medium text-slate-900">{latestLogTime}</div>
+              </div>
+            </div>
+            <Link
+              to={`/logs?keyword=${encodeURIComponent(centralDevice.snCode)}`}
+              className="inline-flex w-fit items-center justify-center rounded-full bg-[#1B8BFA] px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(27,139,250,0.18)] transition hover:bg-[#1577d9]"
+            >
+              查看日志
+            </Link>
           </div>
         </Panel>
 
