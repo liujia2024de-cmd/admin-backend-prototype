@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
+import { DeviceReportTable, type DeviceReportRow } from "@/components/device/DeviceReportTable";
 import { Panel } from "@/components/ui/Panel";
 import { devices, users } from "@/data/mock";
 
@@ -42,6 +43,23 @@ const groups = [
       ["风扇计划", "3 个时段已配置"],
     ],
   },
+];
+
+const centralReportRows: DeviceReportRow[] = [
+  { id: "1681", time: "2026-06-08 20:42:17.030", type: "用户操作后自动上报", field: "加热灯开关", value: "开启", source: "App 用户触发" },
+  { id: "1682", time: "2026-06-08 20:42:16.056", type: "用户操作后自动上报", field: "雾化喷淋", value: "启动 30 秒", source: "App 用户触发" },
+  { id: "1683", time: "2026-06-08 20:42:15.927", type: "用户操作后自动上报", field: "UV 灯开关", value: "关闭", source: "App 用户触发" },
+  { id: "1684", time: "2026-06-08 20:42:13.420", type: "设备自动上报", field: "实时温度", value: "45.3°C", source: "设备本身" },
+  { id: "1685", time: "2026-06-08 20:39:52.404", type: "设备自动上报", field: "实时湿度", value: "45.6%", source: "设备本身" },
+  { id: "1686", time: "2026-06-08 20:39:48.479", type: "设备自动上报", field: "碳纤维恒温灯", value: "温控联动开启", source: "设备本身" },
+  { id: "1687", time: "2026-06-08 20:39:31.299", type: "设备自动上报", field: "实时温度", value: "45.8°C", source: "设备本身" },
+  { id: "1688", time: "2026-06-08 20:39:10.288", type: "设备自动上报", field: "实时湿度", value: "45.5%", source: "设备本身" },
+  { id: "1689", time: "2026-06-08 20:38:52.414", type: "设备自动上报", field: "风扇功率", value: "79%", source: "设备本身" },
+  { id: "1690", time: "2026-06-08 20:38:51.216", type: "设备自动上报", field: "加热区温度", value: "33.7°C", source: "设备本身" },
+  { id: "1691", time: "2026-06-08 20:38:50.341", type: "设备自动上报", field: "喷淋状态", value: "0.0s / 本轮未触发", source: "设备本身" },
+  { id: "1692", time: "2026-06-08 20:38:50.234", type: "设备自动上报", field: "故障码上报", value: "无异常", source: "设备本身" },
+  { id: "1693", time: "2026-06-07 11:15:18.112", type: "用户操作后自动上报", field: "LED 灯亮度", value: "68%", source: "App 用户触发" },
+  { id: "1694", time: "2026-06-06 08:42:10.512", type: "设备自动上报", field: "实时湿度", value: "48.1%", source: "设备本身" },
 ];
 
 export default function CentralDevicePage() {
@@ -175,6 +193,12 @@ export default function CentralDevicePage() {
             ))}
           </div>
         </Panel>
+
+        <DeviceReportTable
+          title="设备数据上报记录"
+          description="展示用户对中控设备配置的操作上报，以及温湿度、执行器状态和异常信息等自动上报记录。"
+          rows={centralReportRows}
+        />
       </div>
     </AppShell>
   );

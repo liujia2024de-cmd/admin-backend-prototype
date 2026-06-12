@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Panel } from "@/components/ui/Panel";
 import { StatCard } from "@/components/ui/StatCard";
 import { devices, logFiles, users } from "@/data/mock";
+import { buildHighActivityInsight, buildUserActivityDistribution, getUserActivityLevel, USER_ACTIVITY_REFERENCE_DATE } from "@/lib/userActivity";
 
 type ReportTab = "users" | "devices" | "pet_profiles" | "ai" | "subscription";
 type TimeRange = "日" | "周" | "月" | "年";
@@ -112,7 +113,7 @@ type CentralControlProfile = {
 
 const pieColors = ["#5B8CFF", "#30C7C9", "#FF8A5B", "#9B7BFF", "#5B9D6B"];
 const featurePalette = ["#5B8CFF", "#30C7C9", "#FF8A5B", "#9B7BFF", "#5B9D6B"];
-const referenceDate = new Date("2026-06-05T12:00:00");
+const referenceDate = USER_ACTIVITY_REFERENCE_DATE;
 const realisticGenderDistribution = [
   { name: "女", value: 71240 },
   { name: "男", value: 53440 },
@@ -535,11 +536,7 @@ function getAgeBucket(birthday: string) {
 }
 
 function getActivityBucket(lastActiveAt: string) {
-  const activeDate = new Date(lastActiveAt.replace(" ", "T"));
-  const diffDays = (referenceDate.getTime() - activeDate.getTime()) / (1000 * 60 * 60 * 24);
-  if (diffDays <= 1) return "高活跃";
-  if (diffDays <= 3) return "中活跃";
-  return "低活跃";
+  return getUserActivityLevel(lastActiveAt, referenceDate);
 }
 
 function isRecentActive(lastActiveAt: string, maxDays: number) {
@@ -928,7 +925,15 @@ export default function DashboardPage() {
       })),
     [],
   );
-  const activityDistribution = useMemo(() => buildDistribution(users, (user) => getActivityBucket(user.lastActiveAt)), []);
+  const activityDistribution = useMemo(
+    () =>
+      buildUserActivityDistribution(users, referenceDate).map((item, index) => ({
+        ...item,
+        fill: featurePalette[index % featurePalette.length],
+      })),
+    [],
+  );
+  const highActivityInsight = useMemo(() => buildHighActivityInsight(users, referenceDate), []);
   const householdTypeDistribution = useMemo(
     () =>
       [
@@ -2364,7 +2369,7 @@ export default function DashboardPage() {
             </section>
 
             <section className="space-y-4">
-              <div className="grid gap-6 xl:grid-cols-3">
+              <div className="grid gap-6 xl:grid-cols-4">
                 <Panel title="用户地区分布" description="查看用户主要地区分布占比" padded={false}>
                   <div className="px-5 pt-[7px] pb-[7px]">
                     <div className="mt-4 h-[220px] overflow-y-auto pr-1">
@@ -2442,6 +2447,46 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </Panel>
+
+              </div>
+              <div className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
+                <Panel title="用户活跃分层分布" description="统一按近 7 天、8~30 天、31~60 天、超过 60 天未打开 App 进行分层">
+                  <div className="mt-4 h-[220px] overflow-y-auto pr-1">
+                    <div style={{ height: `${Math.max(activityDistribution.length * 32, 220)}px` }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={activityDistribution} layout="vertical" margin={{ left: 4, right: 38, top: 4, bottom: 4 }}>
+                          <CartesianGrid stroke="#e4f0ff" horizontal={false} />
+                          <XAxis type="number" domain={[0, 100]} tickLine={false} axisLine={false} tick={{ fill: "#7395bc", fontSize: 12 }} unit="%" />
+                          <YAxis type="category" dataKey="name" width={72} tickLine={false} axisLine={false} tick={{ fill: "#7395bc", fontSize: 12 }} />
+                          <Tooltip content={<ChartTooltip />} />
+                          <Bar dataKey="share" name="用户占比" barSize={16} radius={[0, 8, 8, 0]}>
+                            {activityDistribution.map((item) => (
+                              <Cell key={item.name} fill={item.fill} />
+                            ))}
+                            <LabelList dataKey="displayValue" position="right" className="fill-slate-950 text-xs font-semibold" />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </Panel>
+                <StatCard
+                  label="近24小时高活跃用户"
+                  value={`${highActivityInsight.highActiveCount.toLocaleString()}人`}
+                  subtext={
+                    <div className="rounded-[20px] border border-white/70 bg-white/70 p-3 text-[#5f84ad] shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+                      <div className="flex items-center justify-between gap-3 border-b border-[#dbeaff] pb-2">
+                        <span>占全部用户</span>
+                        <span className="text-sm font-semibold text-slate-950">{highActivityInsight.highActiveShare}%</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <span>活跃层内占比</span>
+                        <span className="text-sm font-semibold text-slate-950">{highActivityInsight.highActiveWithinActiveShare}%</span>
+                      </div>
+                    </div>
+                  }
+                  tone="teal"
+                />
               </div>
             </section>
 

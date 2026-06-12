@@ -1,33 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronDown, Download, ListChecks, MapPinned, ShieldCheck } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CalendarDays, ChevronDown, Download, ListChecks } from "lucide-react";
 import { Link } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
+import { ExportTaskDrawer } from "@/components/export/ExportTaskDrawer";
 import { Drawer } from "@/components/ui/Drawer";
 import { Panel } from "@/components/ui/Panel";
 import { useToast } from "@/components/ui/useToast";
 import { aiVideos, devices } from "@/data/mock";
+import { createAsyncExportTask, updateAsyncExportTaskStatus } from "@/lib/asyncExport";
+import { isSuperAdmin, readSession } from "@/lib/auth";
 
-type AiExportScope = "selected" | "filtered" | "all";
-
-type AiExportTask = {
-  id: string;
-  name: string;
-  scope: AiExportScope;
-  scopeLabel: string;
-  count: number;
-  status: "processing" | "completed";
-  createdAt: string;
-  fileName: string;
-};
+type AiExportScope = "filtered" | "all";
+type ReviewStatus = "待审核" | "已通过" | "已拒绝";
+const REJECT_REASON_MAX_LENGTH = 100;
+const rejectReasonTemplates = ["画面模糊或遮挡严重", "行为标签与视频内容不符", "非目标物种", "有效行为画面不足", "重复捐献", "其他"];
 
 const scopeLabelMap: Record<AiExportScope, string> = {
-  selected: "选中项",
   filtered: "当前筛选结果",
   all: "全部数据",
 };
 
 export default function AiFeedbackPage() {
   const { showToast } = useToast();
+  const canExport = isSuperAdmin(readSession());
   const openNativeDatePicker = (input: HTMLInputElement) => {
     if (typeof input.showPicker === "function") {
       input.showPicker();
@@ -40,25 +35,28 @@ export default function AiFeedbackPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [dateOpen, setDateOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [batchExportOpen, setBatchExportOpen] = useState(false);
   const [taskListOpen, setTaskListOpen] = useState(false);
-  const [exportScope, setExportScope] = useState<AiExportScope>("selected");
-  const [exportTasks, setExportTasks] = useState<AiExportTask[]>([]);
-
-  const videoRows = useMemo(
-    () =>
-      aiVideos.map((video, index) => ({
-        ...video,
-        id: `video-${index + 1}`,
-      })),
-    [],
+  const [batchExportOpen, setBatchExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<AiExportScope>("filtered");
+  const [statusKeyword, setStatusKeyword] = useState<ReviewStatus | "">("");
+  const [reviewTargetId, setReviewTargetId] = useState<string | null>(null);
+  const [reviewAction, setReviewAction] = useState<"approve" | "reject" | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [videoRows, setVideoRows] = useState(
+    aiVideos.map((video, index) => ({
+      ...video,
+      id: `video-${index + 1}`,
+      reviewedBy: video.status === "待审核" ? "-" : "today_admin",
+      reviewedAt: video.status === "待审核" ? "-" : index === 1 ? "2026-06-01 09:10" : "2026-06-03 10:22",
+      rejectReason: video.status === "已拒绝" ? "视频清晰度不足，且行为标签与画面主体不一致。" : "",
+    })),
   );
 
   const deviceOptions = useMemo(() => [...new Set(videoRows.map((video) => video.sn))], [videoRows]);
   const behaviorLabelOptions = useMemo(() => [...new Set(videoRows.map((video) => video.behaviorLabel))], [videoRows]);
   const reasonOptions = useMemo(() => [...new Set(videoRows.map((video) => video.reason))], [videoRows]);
+  const reviewStatusOptions: ReviewStatus[] = ["待审核", "已通过", "已拒绝"];
   const deviceLinkMap = useMemo(
     () =>
       new Map(
@@ -77,46 +75,29 @@ export default function AiFeedbackPage() {
         const matchesDevice = !deviceKeyword || video.sn === deviceKeyword;
         const matchesLabel = !labelKeyword || video.behaviorLabel === labelKeyword;
         const matchesReason = !reasonKeyword || video.reason === reasonKeyword;
+        const matchesStatus = !statusKeyword || video.status === statusKeyword;
         const donatedDate = video.donatedAt.slice(0, 10);
         const matchesStartDate = !startDate || donatedDate >= startDate;
         const matchesEndDate = !endDate || donatedDate <= endDate;
-        return matchesUser && matchesDevice && matchesLabel && matchesReason && matchesStartDate && matchesEndDate;
+        return matchesUser && matchesDevice && matchesLabel && matchesReason && matchesStatus && matchesStartDate && matchesEndDate;
       }),
-    [deviceKeyword, endDate, labelKeyword, reasonKeyword, startDate, userKeyword, videoRows],
+    [deviceKeyword, endDate, labelKeyword, reasonKeyword, startDate, statusKeyword, userKeyword, videoRows],
   );
 
-  const selectedVideos = filteredVideos.filter((video) => selectedIds.includes(video.id));
   const previewVideo = filteredVideos.find((video) => video.id === previewId) ?? videoRows.find((video) => video.id === previewId) ?? null;
-
-  const handleDownload = (videoId: string, fileName: string) => {
-    const blob = new Blob(
-      [
-        `videoId=${videoId}\n`,
-        `fileName=${fileName}\n`,
-        `exportedAt=${new Date().toISOString()}\n`,
-      ],
-      { type: "text/plain;charset=utf-8" },
-    );
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(downloadUrl);
-
-    showToast({
-      tone: "success",
-      title: "视频下载已开始",
-      description: `${fileName} 已生成本地下载文件。`,
-    });
-  };
+  const reviewTarget = videoRows.find((video) => video.id === reviewTargetId) ?? null;
 
   const getVideosByScope = (scope: AiExportScope) => {
-    if (scope === "selected") return selectedVideos;
-    if (scope === "filtered") return filteredVideos;
-    return videoRows;
+    const approvedVideos = scope === "filtered" ? filteredVideos : videoRows;
+    return approvedVideos.filter((video) => video.status === "已通过");
+  };
+  const buildExportContent = (targetVideos: typeof videoRows) => {
+    const header = "视频ID,用户ID,设备SN,捐献原因,捐献备注,录像标签,物种标签,行为标签,时长";
+    const rows = targetVideos.map(
+      (video) =>
+        `${video.id},${video.userId},${video.sn},${video.reason},${video.donationRemark},${video.recordingLabel},${video.speciesLabel},${video.behaviorLabel},${video.duration}`,
+    );
+    return [header, ...rows].join("\n");
   };
 
   const createTaskTime = () => new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
@@ -132,67 +113,66 @@ export default function AiFeedbackPage() {
       return;
     }
 
-    const header = "视频ID,用户ID,设备SN,捐献原因,捐献备注,录像标签,物种标签,行为标签,时长";
-    const rows = targetVideos.map(
-      (video) =>
-        `${video.id},${video.userId},${video.sn},${video.reason},${video.donationRemark},${video.recordingLabel},${video.speciesLabel},${video.behaviorLabel},${video.duration}`,
-    );
     const fileName = `ai-feedback-export-${Date.now()}.csv`;
     const taskId = `ai-export-${Date.now()}`;
-
-    setExportTasks((current) => [
-      {
-        id: taskId,
-        name: "AI反馈视频导出任务",
-        scope: exportScope,
-        scopeLabel: scopeLabelMap[exportScope],
-        count: targetVideos.length,
-        status: "processing",
-        createdAt: createTaskTime(),
-        fileName,
-      },
-      ...current,
-    ]);
+    createAsyncExportTask({
+      id: taskId,
+      module: "ai-feedback",
+      moduleLabel: "视频捐献",
+      name: "AI反馈视频导出任务",
+      scopeLabel: scopeLabelMap[exportScope],
+      count: targetVideos.length,
+      createdAt: createTaskTime(),
+      fileName,
+      mimeType: "text/csv;charset=utf-8",
+      payload: buildExportContent(targetVideos),
+    });
 
     setBatchExportOpen(false);
     setTaskListOpen(true);
     showToast({
       tone: "info",
       title: "导出任务已创建",
-      description: `系统正在为 ${targetVideos.length} 条视频记录生成导出文件。`,
+      description: `系统正在为 ${targetVideos.length} 条已审核通过的视频记录生成导出文件，可在当前页面的导出任务中查看进度。`,
     });
 
     window.setTimeout(() => {
-      setExportTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: "completed" } : task)));
+      updateAsyncExportTaskStatus(taskId, "completed");
     }, 1200);
   };
+  const confirmReview = () => {
+    if (!reviewTarget || !reviewAction) return;
+    if (reviewAction === "reject" && !rejectReason.trim()) {
+      showToast({
+        tone: "warning",
+        title: "请填写拒绝原因",
+        description: "拒绝视频捐献审核时，需要记录具体原因。",
+      });
+      return;
+    }
 
-  const downloadTextFile = (fileName: string, content: string, mimeType = "text/plain;charset=utf-8") => {
-    const blob = new Blob([content], { type: mimeType });
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(downloadUrl);
-  };
-
-  const downloadExportTask = (task: AiExportTask) => {
-    const targetVideos = getVideosByScope(task.scope);
-    const header = "视频ID,用户ID,设备SN,捐献原因,捐献备注,录像标签,物种标签,行为标签,时长";
-    const rows = targetVideos.map(
-      (video) =>
-        `${video.id},${video.userId},${video.sn},${video.reason},${video.donationRemark},${video.recordingLabel},${video.speciesLabel},${video.behaviorLabel},${video.duration}`,
+    const reviewedAt = createTaskTime();
+    setVideoRows((current) =>
+      current.map((video) =>
+        video.id === reviewTarget.id
+          ? {
+              ...video,
+              status: reviewAction === "approve" ? "已通过" : "已拒绝",
+              reviewedBy: "today_admin",
+              reviewedAt,
+              rejectReason: reviewAction === "reject" ? rejectReason.trim() : "",
+            }
+          : video,
+      ),
     );
-    const content = [header, ...rows].join("\n");
-    downloadTextFile(task.fileName, content, "text/csv;charset=utf-8");
     showToast({
-      tone: "success",
-      title: "导出文件已开始下载",
-      description: `${task.fileName} 已开始下载。`,
+      tone: reviewAction === "approve" ? "success" : "info",
+      title: reviewAction === "approve" ? "视频已审核通过" : "视频已审核拒绝",
+      description: reviewAction === "approve" ? "该视频已标记为训练可用范围业务状态，并进入批量导出范围。" : "系统已记录拒绝原因，该视频不会进入导出范围。",
     });
+    setReviewAction(null);
+    setReviewTargetId(null);
+    setRejectReason("");
   };
 
   return (
@@ -202,23 +182,25 @@ export default function AiFeedbackPage() {
           title="用户捐献视频列表"
           description="支持按用户、设备、行为标签和捐献原因筛选，并进行批量导出"
           action={
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-4 py-2.5 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA]"
-                onClick={() => setTaskListOpen(true)}
-              >
-                <ListChecks className="h-4 w-4" />
-                导出任务
-              </button>
-              <button className="inline-flex items-center gap-2 rounded-2xl bg-[#1B8BFA] px-4 py-2.5 text-sm font-medium text-white" onClick={() => setBatchExportOpen(true)}>
-                <Download className="h-4 w-4" />
-                批量导出
-              </button>
-            </div>
+            canExport ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-4 py-2.5 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA]"
+                  onClick={() => setTaskListOpen(true)}
+                >
+                  <ListChecks className="h-4 w-4" />
+                  导出任务
+                </button>
+                <button className="inline-flex items-center gap-2 rounded-2xl bg-[#1B8BFA] px-4 py-2.5 text-sm font-medium text-white" onClick={() => setBatchExportOpen(true)}>
+                  <Download className="h-4 w-4" />
+                  批量导出
+                </button>
+              </div>
+            ) : null
           }
         >
-          <div className="grid gap-4 xl:grid-cols-6">
+          <div className="grid gap-4 xl:grid-cols-7">
             <input value={userKeyword} onChange={(event) => setUserKeyword(event.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" placeholder="用户ID" />
             <div className="relative">
               <select value={deviceKeyword} onChange={(event) => setDeviceKeyword(event.target.value)} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
@@ -246,6 +228,17 @@ export default function AiFeedbackPage() {
               <select value={reasonKeyword} onChange={(event) => setReasonKeyword(event.target.value)} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
                 <option value="">全部捐献原因</option>
                 {reasonOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            </div>
+            <div className="relative">
+              <select value={statusKeyword} onChange={(event) => setStatusKeyword(event.target.value as ReviewStatus | "")} className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-700 outline-none">
+                <option value="">全部审核状态</option>
+                {reviewStatusOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -299,12 +292,20 @@ export default function AiFeedbackPage() {
           </div>
         </Panel>
 
-        <Panel title="捐献视频明细" description="集中查看用户捐献视频并执行查看、下载操作" padded={false}>
+        <ExportTaskDrawer
+          open={taskListOpen}
+          onClose={() => setTaskListOpen(false)}
+          module="ai-feedback"
+          title="视频捐献导出任务"
+          description="查看视频捐献页创建的导出任务状态，文件生成完成后可直接在这里下载。"
+        />
+
+        <Panel title="捐献视频明细" description="集中查看用户捐献视频并执行查看、审核操作" padded={false}>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  {["视频信息", "设备SN", "捐献原因", "捐献备注", "录像标签", "物种标签", "行为标签", "操作"].map((head) => (
+                  {["视频信息", "设备SN", "审核状态", "捐献原因", "捐献备注", "录像标签", "物种标签", "行为标签", "操作"].map((head) => (
                     <th key={head} className="px-5 py-4 font-medium">
                       {head}
                     </th>
@@ -332,6 +333,19 @@ export default function AiFeedbackPage() {
                         video.sn
                       )}
                     </td>
+                    <td className="px-5 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                          video.status === "已通过"
+                            ? "bg-emerald-50 text-emerald-600"
+                            : video.status === "已拒绝"
+                              ? "bg-rose-50 text-rose-600"
+                              : "bg-amber-50 text-amber-600"
+                        }`}
+                      >
+                        {video.status}
+                      </span>
+                    </td>
                     <td className="px-5 py-4">{video.reason}</td>
                     <td className="max-w-[260px] px-5 py-4 text-slate-600">{video.donationRemark}</td>
                     <td className="px-5 py-4">{video.recordingLabel}</td>
@@ -342,9 +356,30 @@ export default function AiFeedbackPage() {
                         <button className="rounded-full border border-[#d8ebff] bg-white px-3 py-1.5 text-xs font-medium text-[#6287b0]" onClick={() => setPreviewId(video.id)}>
                           查看
                         </button>
-                        <button className="rounded-full bg-[#1B8BFA] px-3 py-1.5 text-xs font-medium text-white" onClick={() => handleDownload(video.id, `${video.userId}-${video.sn}.txt`)}>
-                          下载
-                        </button>
+                        {video.status !== "已通过" ? (
+                          <button
+                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-600"
+                            onClick={() => {
+                              setReviewTargetId(video.id);
+                              setReviewAction("approve");
+                              setRejectReason("");
+                            }}
+                          >
+                            审核通过
+                          </button>
+                        ) : null}
+                        {video.status !== "已拒绝" ? (
+                          <button
+                            className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600"
+                            onClick={() => {
+                              setReviewTargetId(video.id);
+                              setReviewAction("reject");
+                              setRejectReason(video.rejectReason);
+                            }}
+                          >
+                            审核拒绝
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -354,44 +389,9 @@ export default function AiFeedbackPage() {
           </div>
         </Panel>
 
-        <Drawer open={taskListOpen} title="导出任务" description="这里集中查看AI反馈视频导出任务状态，文件生成完成后可直接下载。" onClose={() => setTaskListOpen(false)}>
-          {exportTasks.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-[#d8ebff] bg-[#f8fbff] p-6 text-sm leading-6 text-[#6f8fb3]">
-              暂无导出任务。你可以先点击"批量导出"创建任务，生成完成后再回到这里下载文件。
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {exportTasks.map((task) => (
-                <div key={task.id} className="flex flex-col gap-4 rounded-[24px] border border-[#e9f4ff] bg-white p-5 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="font-medium text-slate-900">{task.name}</div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-medium ${task.status === "completed" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
-                        {task.status === "completed" ? "已完成" : "处理中"}
-                      </span>
-                    </div>
-                    <div className="text-sm text-[#6f8fb3]">
-                      导出范围：{task.scopeLabel} · 数据量：{task.count} 条 · 创建时间：{task.createdAt}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={task.status !== "completed"}
-                    onClick={() => downloadExportTask(task)}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-4 py-2.5 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA] disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    <Download className="h-4 w-4" />
-                    {task.status === "completed" ? "下载文件" : "生成中"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Drawer>
-
-        <Drawer open={batchExportOpen} title="批量导出AI反馈视频" description="按导出范围创建后台导出任务，适合大量数据批量导出。文件生成完成后可在任务列表查看并下载。" onClose={() => setBatchExportOpen(false)} footer={(
+        <Drawer open={batchExportOpen} title="批量导出AI反馈视频" description="按导出范围创建后台导出任务，适合大量数据批量导出。文件生成完成后可在当前页面的导出任务中查看并下载。" onClose={() => setBatchExportOpen(false)} footer={(
           <div className="flex items-center justify-between gap-3">
-            <div className="text-sm text-[#6f8fb3]">预计导出 {getVideosByScope(exportScope).length} 条视频数据</div>
+            <div className="text-sm text-[#6f8fb3]">预计导出 {getVideosByScope(exportScope).length} 条已审核通过的视频数据</div>
             <div className="flex gap-3">
               <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700" onClick={() => setBatchExportOpen(false)}>
                 取消
@@ -432,8 +432,8 @@ export default function AiFeedbackPage() {
               <div className="text-sm font-medium text-slate-900">任务说明</div>
               <div className="mt-3 space-y-2 text-sm leading-6 text-[#6f8fb3]">
                 <div>1. 大数据量导出不再逐条勾选，直接按当前筛选结果或全部数据创建任务。</div>
-                <div>2. 任务创建后会进入导出队列，生成完成后可在右上角"导出任务"入口查看并下载文件。</div>
-                <div>3. 当前为原型演示，默认导出 CSV 文件。</div>
+                <div>2. 仅审核状态为“已通过”的视频会进入当前页面的导出任务列表。</div>
+                <div>3. 任务创建后可在当前页面统一查看任务状态并下载文件。</div>
               </div>
             </section>
           </div>
@@ -452,6 +452,14 @@ export default function AiFeedbackPage() {
               <div>
                 <div className="text-xs uppercase tracking-[0.22em] text-slate-400">设备SN</div>
                 <div className="mt-2 text-sm font-medium text-slate-900">{previewVideo.sn}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-slate-400">审核状态</div>
+                <div className="mt-2 text-sm font-medium text-slate-900">{previewVideo.status}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-slate-400">审核人</div>
+                <div className="mt-2 text-sm font-medium text-slate-900">{previewVideo.reviewedBy}</div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.22em] text-slate-400">录像标签</div>
@@ -477,7 +485,95 @@ export default function AiFeedbackPage() {
                 <div className="text-xs uppercase tracking-[0.22em] text-slate-400">捐献备注</div>
                 <div className="mt-2 text-sm font-medium leading-6 text-slate-900">{previewVideo.donationRemark}</div>
               </div>
+              <div className="md:col-span-2">
+                <div className="text-xs uppercase tracking-[0.22em] text-slate-400">审核结果说明</div>
+                <div className="mt-2 text-sm font-medium leading-6 text-slate-900">
+                  {previewVideo.status === "已拒绝" ? previewVideo.rejectReason : previewVideo.reviewedAt}
+                </div>
+              </div>
             </div>
+          </div>
+        ) : null}
+      </Drawer>
+
+      <Drawer
+        open={reviewTarget !== null && reviewAction !== null}
+        title={reviewAction === "approve" ? "审核通过视频捐献" : "审核拒绝视频捐献"}
+        description="确认审核结果后，会同步更新视频捐献列表状态，并影响是否可进入批量导出范围。"
+        onClose={() => {
+          setReviewTargetId(null);
+          setReviewAction(null);
+          setRejectReason("");
+        }}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700"
+              onClick={() => {
+                setReviewTargetId(null);
+                setReviewAction(null);
+                setRejectReason("");
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={`rounded-2xl px-4 py-3 text-sm font-medium text-white ${reviewAction === "approve" ? "bg-emerald-500" : "bg-rose-500"}`}
+              onClick={confirmReview}
+            >
+              {reviewAction === "approve" ? "确认通过" : "确认拒绝"}
+            </button>
+          </div>
+        }
+      >
+        {reviewTarget ? (
+          <div className="space-y-5">
+            <section className="rounded-[24px] border border-[#d8ebff] bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9ff_100%)] p-5">
+              <div className="text-sm font-medium text-slate-900">视频基本信息</div>
+              <div className="mt-3 space-y-2 text-sm text-[#6f8fb3]">
+                <div>用户ID：{reviewTarget.userId}</div>
+                <div>设备SN：{reviewTarget.sn}</div>
+                <div>行为标签：{reviewTarget.behaviorLabel}</div>
+                <div>当前审核状态：{reviewTarget.status}</div>
+              </div>
+            </section>
+            {reviewAction === "reject" ? (
+              <section className="rounded-[24px] border border-[#d8ebff] bg-white p-5">
+                <div className="text-sm font-medium text-slate-900">拒绝原因</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {rejectReasonTemplates.map((template) => (
+                    <button
+                      key={template}
+                      type="button"
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                        rejectReason === template
+                          ? "border-rose-300 bg-rose-50 text-rose-600"
+                          : "border-[#d8ebff] bg-white text-[#6287b0] hover:border-rose-200 hover:text-rose-500"
+                      }`}
+                      onClick={() => setRejectReason(template)}
+                    >
+                      {template}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={rejectReason}
+                  maxLength={REJECT_REASON_MAX_LENGTH}
+                  onChange={(event) => setRejectReason(event.target.value.slice(0, REJECT_REASON_MAX_LENGTH))}
+                  className="mt-3 min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+                  placeholder="请填写审核拒绝原因，支持快捷模板和自定义补充说明。"
+                />
+                <div className="mt-2 text-right text-xs text-[#8caed5]">
+                  {rejectReason.length}/{REJECT_REASON_MAX_LENGTH}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-[24px] border border-emerald-100 bg-emerald-50 p-5 text-sm leading-6 text-emerald-700">
+                审核通过后，该视频会被标记为“训练可用范围”业务状态，并允许超级管理员在当前页面执行批量导出。
+              </section>
+            )}
           </div>
         ) : null}
       </Drawer>

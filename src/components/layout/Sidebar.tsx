@@ -13,23 +13,26 @@ import {
   Users,
 } from "lucide-react";
 import { AdvinciLogo } from "@/components/brand/AdvinciLogo";
+import { navAccessList, readSession } from "@/lib/auth";
 
-const navItems = [
-  { label: "数据看板", path: "/dashboard", icon: LineChart },
-  { label: "用户管理", path: "/users", icon: Users },
-  { label: "设备管理", path: "/devices", icon: RadioTower },
-  { label: "OTA管理", path: "/ota", icon: Boxes },
-  { label: "日志管理", path: "/logs", icon: NotebookText },
-  { label: "视频捐献", path: "/ai-feedback/videos", icon: Sparkles },
-  { label: "售后服务", path: "/tickets", icon: LifeBuoy },
-  { label: "运营管理", path: "/operations", icon: Megaphone },
-  { label: "CMS", path: "/cms/faq", icon: FileStack },
-  { label: "运维管理", path: "/infra", icon: Activity },
-  { label: "账号管理", path: "/admin/roles", icon: ShieldCheck },
-];
+const iconMap = {
+  "/dashboard": LineChart,
+  "/users": Users,
+  "/devices": RadioTower,
+  "/ota": Boxes,
+  "/logs": NotebookText,
+  "/ai-feedback/videos": Sparkles,
+  "/tickets": LifeBuoy,
+  "/operations": Megaphone,
+  "/cms/faq": FileStack,
+  "/infra": Activity,
+  "/admin/roles": ShieldCheck,
+} as const;
 
 export function Sidebar() {
   const location = useLocation();
+  const session = readSession();
+  const navItems = navAccessList.filter((item) => session && item.roles.includes(session.role));
 
   return (
     <aside className="sticky top-0 hidden h-screen min-h-0 w-72 shrink-0 flex-col border-r border-[#cfe4ff] bg-[linear-gradient(180deg,#1B8BFA_0%,#167fe6_42%,#126fd0_100%)] text-white lg:flex">
@@ -44,7 +47,7 @@ export function Sidebar() {
         <nav className="space-y-[11px] pt-4">
           {navItems.map((item) => {
             const active = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
-            const Icon = item.icon;
+            const Icon = iconMap[item.path as keyof typeof iconMap];
             return (
               <Link
                 key={item.path}

@@ -12,6 +12,11 @@ import { otaVersions } from "@/data/mock";
 
 type OtaAction = "publish" | "rollback" | "delete" | "unpublish" | null;
 type OtaStatus = "已发布" | "未发布" | "已回滚" | "已取消发布";
+type PublishMode = "立即发布" | "定时发布";
+type PublishTarget = "全部设备" | "指定SN名单发布" | "按区域发布" | "按用户分组发布";
+type RolloutStrategy = "全量发布" | "灰度分批发布";
+type RegionDimension = "国家" | "运营大区标签";
+type RollbackScope = "全部已升级设备" | "升级失败设备" | "指定SN名单回滚";
 
 type OtaRecord = {
   id: string;
@@ -22,7 +27,14 @@ type OtaRecord = {
   uploadedAt: string;
   publishedAt: string;
   status: OtaStatus;
+  publishSummary?: string;
+  rollbackSummary?: string;
 };
+
+const countryOptions = ["中国", "美国", "日本", "德国", "英国", "法国"];
+const operationRegionOptions = ["亚太", "北美", "欧洲", "中东"];
+const userGroupOptions = ["高价值订阅用户", "近 30 天活跃用户", "新注册 7 天用户", "高频告警设备用户"];
+const grayBatchOptions = ["1%", "3%", "5%", "10%", "15%", "20%"];
 
 const hashSeed = (value: string) =>
   [...value].reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0);
@@ -102,13 +114,21 @@ export default function OtaPage() {
   const [uploadPn, setUploadPn] = useState("CAM-PN-02");
   const [uploadVersion, setUploadVersion] = useState("");
   const [uploadReleaseNote, setUploadReleaseNote] = useState("");
-  const [publishMode, setPublishMode] = useState("立即发布");
+  const [publishMode, setPublishMode] = useState<PublishMode>("立即发布");
   const [scheduleTime, setScheduleTime] = useState("2026-06-05 20:00");
-  const [publishScope, setPublishScope] = useState("全部设备");
+  const [publishScope, setPublishScope] = useState<PublishTarget>("全部设备");
+  const [rolloutStrategy, setRolloutStrategy] = useState<RolloutStrategy>("全量发布");
+  const [grayBatchRatio, setGrayBatchRatio] = useState("1%");
+  const [regionDimension, setRegionDimension] = useState<RegionDimension>("国家");
+  const [selectedRegionTargets, setSelectedRegionTargets] = useState<string[]>(["中国", "美国"]);
+  const [selectedUserGroup, setSelectedUserGroup] = useState(userGroupOptions[0]);
   const [snListFileName, setSnListFileName] = useState("");
+  const [rollbackTargetVersion, setRollbackTargetVersion] = useState("");
+  const [rollbackScope, setRollbackScope] = useState<RollbackScope>("全部已升级设备");
+  const [rollbackSnListFileName, setRollbackSnListFileName] = useState("");
   const [releaseNotePreview, setReleaseNotePreview] = useState<{ version: string; note: string } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
+  const [pageSize, setPageSize] = useState(10);
 
   const filteredVersions = useMemo(
     () =>
@@ -134,6 +154,10 @@ export default function OtaPage() {
     const normalizedStart = Math.max(1, end - 4);
     return Array.from({ length: end - normalizedStart + 1 }, (_, index) => normalizedStart + index);
   }, [currentPageSafe, totalPages]);
+  const rollbackCandidates = useMemo(
+    () => versions.filter((version) => version.pn === selectedVersion?.pn && version.version !== selectedVersion?.version),
+    [selectedVersion?.pn, selectedVersion?.version, versions],
+  );
 
   useEffect(() => {
     setCurrentPage(1);
@@ -156,7 +180,53 @@ export default function OtaPage() {
     setPublishMode("立即发布");
     setScheduleTime("2026-06-05 20:00");
     setPublishScope("全部设备");
+    setRolloutStrategy("全量发布");
+    setGrayBatchRatio("1%");
+    setRegionDimension("国家");
+    setSelectedRegionTargets(["中国", "美国"]);
+    setSelectedUserGroup(userGroupOptions[0]);
     setSnListFileName("");
+  };
+
+  const resetRollbackForm = (item?: OtaRecord | null) => {
+    const candidates = versions.filter((version) => version.pn === item?.pn && version.version !== item?.version);
+    setRollbackTargetVersion(candidates[0]?.version ?? "");
+    setRollbackScope("全部已升级设备");
+    setRollbackSnListFileName("");
+  };
+
+  const toggleRegionTarget = (target: string) => {
+    setSelectedRegionTargets((current) =>
+      current.includes(target) ? current.filter((item) => item !== target) : [...current, target],
+    );
+  };
+
+  const buildPublishSummary = () => {
+    const scopeSummary =
+      publishScope === "全部设备"
+        ? "范围：全部设备"
+        : publishScope === "指定SN名单发布"
+          ? `范围：指定SN名单${snListFileName ? `（${snListFileName}）` : ""}`
+          : publishScope === "按区域发布"
+            ? `范围：${regionDimension} - ${selectedRegionTargets.join(" / ")}`
+            : `范围：用户分组 - ${selectedUserGroup}`;
+
+    const rolloutSummary =
+      rolloutStrategy === "全量发布"
+        ? "全量发布"
+        : `灰度分批 ${grayBatchRatio} 首批，成功率达 95% 自动推进`;
+
+    return `${publishMode}｜${rolloutSummary}｜${scopeSummary}`;
+  };
+
+  const buildRollbackSummary = () => {
+    const scopeSummary =
+      rollbackScope === "全部已升级设备"
+        ? "范围：全部已升级设备"
+        : rollbackScope === "升级失败设备"
+          ? "范围：升级失败设备"
+          : `范围：指定SN名单${rollbackSnListFileName ? `（${rollbackSnListFileName}）` : ""}`;
+    return `回滚至 ${rollbackTargetVersion}｜${scopeSummary}`;
   };
 
   const openAction = (action: OtaAction, item: OtaRecord) => {
@@ -165,12 +235,16 @@ export default function OtaPage() {
     if (action === "publish") {
       resetPublishForm();
     }
+    if (action === "rollback") {
+      resetRollbackForm(item);
+    }
   };
 
   const closeAction = () => {
     setActiveAction(null);
     setSelectedVersion(null);
     resetPublishForm();
+    resetRollbackForm();
   };
 
   const handleUpload = () => {
@@ -229,6 +303,17 @@ export default function OtaPage() {
         return;
       }
 
+      if (publishScope === "按区域发布" && selectedRegionTargets.length === 0) {
+        showToast({
+          tone: "warning",
+          title: "请至少选择一个发布区域",
+          description: "按区域发布时，需要指定国家或运营大区标签。",
+        });
+        return;
+      }
+
+      const publishSummary = buildPublishSummary();
+
       setVersions((current) =>
         current.map((item) =>
           item.id === selectedVersion.id
@@ -236,6 +321,7 @@ export default function OtaPage() {
                 ...item,
                 status: "已发布",
                 publishedAt: publishMode === "立即发布" ? nowString() : scheduleTime,
+                publishSummary,
               }
             : item,
         ),
@@ -243,7 +329,7 @@ export default function OtaPage() {
       showToast({
         tone: "success",
         title: "发布策略已生效",
-        description: `${selectedVersion.version} 已按${publishMode}发布，范围为${publishScope}${snListFileName ? `（${snListFileName}）` : ""}。`,
+        description: `${selectedVersion.version} 已完成策略配置：${publishSummary}。`,
       });
     }
 
@@ -266,12 +352,32 @@ export default function OtaPage() {
     }
 
     if (activeAction === "rollback") {
+      if (!rollbackTargetVersion) {
+        showToast({
+          tone: "warning",
+          title: "请先选择回滚固件包",
+          description: "回滚前需要指定一个目标固件版本。",
+        });
+        return;
+      }
+
+      if (rollbackScope === "指定SN名单回滚" && !rollbackSnListFileName) {
+        showToast({
+          tone: "warning",
+          title: "请上传回滚 SN 名单",
+          description: "选择指定 SN 名单回滚后，需要上传设备名单文件。",
+        });
+        return;
+      }
+
+      const rollbackSummary = buildRollbackSummary();
       setVersions((current) =>
         current.map((item) =>
           item.id === selectedVersion.id
             ? {
                 ...item,
                 status: "已回滚",
+                rollbackSummary,
               }
             : item,
         ),
@@ -279,7 +385,7 @@ export default function OtaPage() {
       showToast({
         tone: "warning",
         title: "版本已回滚",
-        description: `${selectedVersion.version} 已停止继续下发，设备端将回退到上一稳定版本。`,
+        description: `${selectedVersion.version} 已进入回滚流程：${rollbackSummary}。`,
       });
     }
 
@@ -468,7 +574,17 @@ export default function OtaPage() {
                           </div>
                         </td>
                         <td className="px-5 py-4">{item.uploadedAt}</td>
-                        <td className="px-5 py-4">{item.publishedAt}</td>
+                        <td className="px-5 py-4">
+                          <div className="min-w-[220px]">
+                            <div className="text-sm text-slate-900">{item.publishedAt}</div>
+                            {item.publishSummary ? (
+                              <div className="mt-1 text-xs leading-5 text-[#7395bc]">{item.publishSummary}</div>
+                            ) : null}
+                            {item.rollbackSummary ? (
+                              <div className="mt-1 text-xs leading-5 text-rose-500">{item.rollbackSummary}</div>
+                            ) : null}
+                          </div>
+                        </td>
                         <td className="px-5 py-4">
                           <div className="min-w-[108px]">
                             <div className="font-medium text-slate-900">
@@ -567,7 +683,7 @@ export default function OtaPage() {
                       onChange={(e) => setPageSize(Number(e.target.value))}
                       className="rounded-xl border border-[#d8ebff] bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                     >
-                      {[8, 10, 20].map((size) => (
+                      {[10, 20, 50].map((size) => (
                         <option key={size} value={size}>
                           {size} 条
                         </option>
@@ -740,28 +856,50 @@ export default function OtaPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block">
               <div className="mb-2 text-sm font-medium text-slate-700">发布方式</div>
-              <select value={publishMode} onChange={(event) => setPublishMode(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none">
+              <select
+                value={publishMode}
+                onChange={(event) => setPublishMode(event.target.value as PublishMode)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              >
                 <option>立即发布</option>
                 <option>定时发布</option>
               </select>
             </label>
 
+            <label className="block">
+              <div className="mb-2 text-sm font-medium text-slate-700">发布策略</div>
+              <select
+                value={rolloutStrategy}
+                onChange={(event) => setRolloutStrategy(event.target.value as RolloutStrategy)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              >
+                <option>全量发布</option>
+                <option>灰度分批发布</option>
+              </select>
+            </label>
+
             {publishMode === "定时发布" ? (
-              <label className="block">
+              <label className="block md:col-span-2">
                 <div className="mb-2 text-sm font-medium text-slate-700">定时发布时间</div>
                 <input value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
               </label>
             ) : (
-              <div className="rounded-2xl border border-dashed border-[#d8ebff] bg-[#f8fbff] px-4 py-3 text-sm text-[#6287b0]">
+              <div className="rounded-2xl border border-dashed border-[#d8ebff] bg-[#f8fbff] px-4 py-3 text-sm text-[#6287b0] md:col-span-2">
                 选择立即发布后，确认即会直接生效。
               </div>
             )}
 
             <label className="block md:col-span-2">
               <div className="mb-2 text-sm font-medium text-slate-700">发布范围</div>
-              <select value={publishScope} onChange={(event) => setPublishScope(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none">
+              <select
+                value={publishScope}
+                onChange={(event) => setPublishScope(event.target.value as PublishTarget)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              >
                 <option>全部设备</option>
                 <option>指定SN名单发布</option>
+                <option>按区域发布</option>
+                <option>按用户分组发布</option>
               </select>
             </label>
 
@@ -785,6 +923,144 @@ export default function OtaPage() {
                 </label>
               </label>
             ) : null}
+
+            {publishScope === "按区域发布" ? (
+              <div className="space-y-4 md:col-span-2">
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-slate-700">区域字典</div>
+                  <select
+                    value={regionDimension}
+                    onChange={(event) => {
+                      const nextDimension = event.target.value as RegionDimension;
+                      setRegionDimension(nextDimension);
+                      setSelectedRegionTargets(nextDimension === "国家" ? ["中国", "美国"] : ["亚太", "北美"]);
+                    }}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+                  >
+                    <option>国家</option>
+                    <option>运营大区标签</option>
+                  </select>
+                </label>
+                <div>
+                  <div className="mb-2 text-sm font-medium text-slate-700">选择目标区域</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(regionDimension === "国家" ? countryOptions : operationRegionOptions).map((option) => {
+                      const active = selectedRegionTargets.includes(option);
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => toggleRegionTarget(option)}
+                          className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
+                            active
+                              ? "border-[#1B8BFA] bg-[#eef6ff] text-[#1B8BFA]"
+                              : "border-[#d8ebff] bg-white text-[#6287b0]"
+                          }`}
+                        >
+                          {option}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {publishScope === "按用户分组发布" ? (
+              <label className="block md:col-span-2">
+                <div className="mb-2 text-sm font-medium text-slate-700">用户分组</div>
+                <select
+                  value={selectedUserGroup}
+                  onChange={(event) => setSelectedUserGroup(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+                >
+                  {userGroupOptions.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {rolloutStrategy === "灰度分批发布" ? (
+              <div className="space-y-4 rounded-[24px] border border-[#d8ebff] bg-[#f8fbff] p-4 md:col-span-2">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">首批灰度比例</div>
+                    <select
+                      value={grayBatchRatio}
+                      onChange={(event) => setGrayBatchRatio(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    >
+                      {grayBatchOptions.map((option) => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="rounded-2xl border border-dashed border-[#d8ebff] bg-white px-4 py-3 text-sm leading-6 text-[#6287b0]">
+                    固定自动推进阈值：成功率达到 95% 后，自动进入下一批次。
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#6f8fb3]">
+                  当前策略摘要：{buildPublishSummary()}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : activeAction === "rollback" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <div className="mb-2 text-sm font-medium text-slate-700">回滚目标固件包</div>
+              <select
+                value={rollbackTargetVersion}
+                onChange={(event) => setRollbackTargetVersion(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              >
+                <option value="">请选择目标版本</option>
+                {rollbackCandidates.map((item) => (
+                  <option key={item.id} value={item.version}>
+                    {item.version}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <div className="mb-2 text-sm font-medium text-slate-700">回滚范围</div>
+              <select
+                value={rollbackScope}
+                onChange={(event) => setRollbackScope(event.target.value as RollbackScope)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              >
+                <option>全部已升级设备</option>
+                <option>升级失败设备</option>
+                <option>指定SN名单回滚</option>
+              </select>
+            </label>
+
+            {rollbackScope === "指定SN名单回滚" ? (
+              <label className="block md:col-span-2">
+                <div className="mb-2 text-sm font-medium text-slate-700">上传回滚 SN 名单</div>
+                <label className="flex cursor-pointer items-center justify-between rounded-[24px] border border-[#d8ebff] bg-[linear-gradient(180deg,#fbfdff_0%,#f4f9ff_100%)] px-4 py-4 transition hover:border-[#1B8BFA] hover:bg-[#f8fbff]">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900">{rollbackSnListFileName || "选择回滚 SN 名单文件"}</div>
+                    <div className="mt-1 text-xs text-[#6f8fb3]">支持 .csv / .txt，用于按部分设备执行回滚</div>
+                  </div>
+                  <span className="ml-4 rounded-full border border-[#d8ebff] bg-white px-3 py-1.5 text-xs font-medium text-[#6287b0]">
+                    上传名单
+                  </span>
+                  <input
+                    type="file"
+                    accept=".csv,.txt"
+                    onChange={(event) => setRollbackSnListFileName(event.target.files?.[0]?.name ?? "")}
+                    className="sr-only"
+                  />
+                </label>
+              </label>
+            ) : null}
+
+            <div className="rounded-[24px] border border-[#ffe3d3] bg-[#fff8f4] px-4 py-4 text-sm leading-6 text-[#9a5a33] md:col-span-2">
+              预计回滚动作：{buildRollbackSummary()}
+            </div>
           </div>
         ) : null}
       </ConfirmModal>

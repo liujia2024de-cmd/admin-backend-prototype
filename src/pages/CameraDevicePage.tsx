@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
+import { DeviceReportTable, type DeviceReportRow } from "@/components/device/DeviceReportTable";
 import { Panel } from "@/components/ui/Panel";
 import { devices, users } from "@/data/mock";
 
@@ -29,6 +30,22 @@ const cloudServiceRows = [
   ["云端事件录像", "开启"],
   ["AI 行为识别", "开启"],
   ["AI 视频剪辑", "开启"],
+];
+
+const cameraReportRows: DeviceReportRow[] = [
+  { id: "1681", time: "2026-06-08 20:42:17.030", type: "用户操作后自动上报", field: "实时预览", value: "打开 Live View", source: "App 用户触发" },
+  { id: "1682", time: "2026-06-08 20:42:16.056", type: "用户操作后自动上报", field: "通知总开关", value: "开启", source: "App 用户触发" },
+  { id: "1683", time: "2026-06-08 20:42:15.927", type: "用户操作后自动上报", field: "Event 录像", value: "关闭", source: "App 用户触发" },
+  { id: "1684", time: "2026-06-08 20:39:48.479", type: "设备自动上报", field: "Wi-Fi 信号", value: "4 格", source: "设备本身" },
+  { id: "1685", time: "2026-06-08 20:39:10.288", type: "设备自动上报", field: "存储状态", value: "本地 SD + 云端双录", source: "设备本身" },
+  { id: "1686", time: "2026-06-08 20:38:52.414", type: "设备自动上报", field: "实时码率", value: "1080P / 1.6Mbps", source: "设备本身" },
+  { id: "1687", time: "2026-06-08 20:38:51.216", type: "设备自动上报", field: "事件识别", value: "检测到进食行为", source: "设备 AI 识别" },
+  { id: "1688", time: "2026-06-08 20:38:49.104", type: "设备自动上报", field: "本地录像状态", value: "录制中", source: "设备本身" },
+  { id: "1689", time: "2026-06-08 20:38:47.552", type: "设备自动上报", field: "夜视微光辅助", value: "开启", source: "设备本身" },
+  { id: "1690", time: "2026-06-08 20:38:45.983", type: "设备自动上报", field: "网络状态", value: "连接正常", source: "设备本身" },
+  { id: "1691", time: "2026-06-07 18:22:43.256", type: "设备自动上报", field: "Wi-Fi 信号", value: "3 格", source: "设备本身" },
+  { id: "1692", time: "2026-06-07 18:22:40.604", type: "用户操作后自动上报", field: "夜视微光辅助", value: "关闭", source: "App 用户触发" },
+  { id: "1693", time: "2026-06-06 07:14:32.155", type: "设备自动上报", field: "事件识别", value: "检测到休息静止行为", source: "设备 AI 识别" },
 ];
 
 export default function CameraDevicePage() {
@@ -126,6 +143,12 @@ export default function CameraDevicePage() {
             ))}
           </div>
         </Panel>
+
+        <DeviceReportTable
+          title="设备数据上报记录"
+          description="展示用户对设备配置的操作上报，以及设备自动上报的运行数据、识别结果和状态变化。"
+          rows={cameraReportRows}
+        />
       </div>
     </AppShell>
   );

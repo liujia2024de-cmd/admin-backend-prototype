@@ -45,7 +45,7 @@ export default function LogsPage() {
   const [endDate, setEndDate] = useState("");
   const [presetFilter, setPresetFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
+  const [pageSize, setPageSize] = useState(10);
   const [batchDownloadOpen, setBatchDownloadOpen] = useState(false);
   const [taskListOpen, setTaskListOpen] = useState(false);
   const [downloadScope, setDownloadScope] = useState<LogDownloadScope>("filtered");
@@ -421,7 +421,7 @@ export default function LogsPage() {
                       onChange={(e) => setPageSize(Number(e.target.value))}
                       className="rounded-xl border border-[#d8ebff] bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                     >
-                      {[8, 10, 20].map((size) => (
+                      {[10, 20, 50].map((size) => (
                         <option key={size} value={size}>
                           {size} 条
                         </option>

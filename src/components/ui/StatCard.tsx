@@ -6,7 +6,7 @@ type StatCardProps = {
   trend?: string;
   icon?: ReactNode;
   tone?: "teal" | "amber" | "violet" | "emerald";
-  subtext?: string;
+  subtext?: ReactNode;
 };
 
 const toneClasses = {
@@ -25,7 +25,7 @@ export function StatCard({ label, value, trend, icon, tone = "teal", subtext }: 
         <div>
           <p className="text-xs uppercase tracking-[0.22em] text-[#7395bc]">{label}</p>
           <p className="mt-3 font-display text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
-          {subtext ? <p className="mt-2 text-xs text-[#7395bc]">{subtext}</p> : null}
+          {subtext ? <div className="mt-3 space-y-2 text-xs leading-5 text-[#7395bc]">{subtext}</div> : null}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AdminUsersPage from "@/pages/AdminUsersPage";
 import AiFeedbackPage from "@/pages/AiFeedbackPage";
 import CameraDevicePage from "@/pages/CameraDevicePage";
@@ -22,38 +22,69 @@ import TicketsPage from "@/pages/TicketsPage";
 import UserDetailPage from "@/pages/UserDetailPage";
 import UsersPage from "@/pages/UsersPage";
 import { ToastProvider } from "@/components/ui/Toast";
+import { canAccessPath, getDefaultHomePath, readSession } from "@/lib/auth";
+
+function ProtectedRoute({ children }: { children: JSX.Element }) {
+  const session = readSession();
+
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
+function PermissionRoute({ children }: { children: JSX.Element }) {
+  const location = useLocation();
+  const session = readSession();
+
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!canAccessPath(session.role, location.pathname)) {
+    return <Navigate to="/403" replace />;
+  }
+
+  return children;
+}
+
+function HomeRedirect() {
+  const session = readSession();
+  return <Navigate to={session ? getDefaultHomePath(session.role) : "/login"} replace />;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<HomeRedirect />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/users/:id" element={<UserDetailPage />} />
-          <Route path="/devices" element={<DevicesPage />} />
-          <Route path="/devices/camera/:id" element={<CameraDevicePage />} />
-          <Route path="/devices/central/:id" element={<CentralDevicePage />} />
-          <Route path="/ota" element={<OtaPage />} />
-          <Route path="/logs" element={<LogsPage />} />
-          <Route path="/tickets" element={<TicketsPage />} />
-          <Route path="/tickets/:id" element={<TicketDetailPage />} />
-          <Route path="/operations" element={<OperationsPage />} />
-          <Route path="/infra" element={<InfraOpsPage />} />
-          <Route path="/cms/faq" element={<FaqPage />} />
-          <Route path="/cms/knowledge" element={<KnowledgePage />} />
-          <Route path="/cms/preset" element={<PresetConfigsPage />} />
-          <Route path="/cms/preset/edit/:id" element={<PresetEditPage />} />
-          <Route path="/operations/popup" element={<OperationsPage />} />
-          <Route path="/operations/banner" element={<OperationsPage />} />
-          <Route path="/ai-feedback/videos" element={<AiFeedbackPage />} />
-          <Route path="/subscriptions" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/admin/users" element={<AdminUsersPage />} />
-          <Route path="/admin/roles" element={<RolesPage />} />
-          <Route path="/403" element={<NoAccessPage />} />
-          <Route path="*" element={<NotFoundPage />} />
+          <Route path="/dashboard" element={<PermissionRoute><DashboardPage /></PermissionRoute>} />
+          <Route path="/users" element={<PermissionRoute><UsersPage /></PermissionRoute>} />
+          <Route path="/users/:id" element={<PermissionRoute><UserDetailPage /></PermissionRoute>} />
+          <Route path="/devices" element={<PermissionRoute><DevicesPage /></PermissionRoute>} />
+          <Route path="/devices/camera/:id" element={<PermissionRoute><CameraDevicePage /></PermissionRoute>} />
+          <Route path="/devices/central/:id" element={<PermissionRoute><CentralDevicePage /></PermissionRoute>} />
+          <Route path="/ota" element={<PermissionRoute><OtaPage /></PermissionRoute>} />
+          <Route path="/logs" element={<PermissionRoute><LogsPage /></PermissionRoute>} />
+          <Route path="/tickets" element={<PermissionRoute><TicketsPage /></PermissionRoute>} />
+          <Route path="/tickets/:id" element={<PermissionRoute><TicketDetailPage /></PermissionRoute>} />
+          <Route path="/operations" element={<PermissionRoute><OperationsPage /></PermissionRoute>} />
+          <Route path="/infra" element={<PermissionRoute><InfraOpsPage /></PermissionRoute>} />
+          <Route path="/cms/faq" element={<PermissionRoute><FaqPage /></PermissionRoute>} />
+          <Route path="/cms/knowledge" element={<PermissionRoute><KnowledgePage /></PermissionRoute>} />
+          <Route path="/cms/preset" element={<PermissionRoute><PresetConfigsPage /></PermissionRoute>} />
+          <Route path="/cms/preset/edit/:id" element={<PermissionRoute><PresetEditPage /></PermissionRoute>} />
+          <Route path="/operations/popup" element={<PermissionRoute><OperationsPage /></PermissionRoute>} />
+          <Route path="/operations/banner" element={<PermissionRoute><OperationsPage /></PermissionRoute>} />
+          <Route path="/ai-feedback/videos" element={<PermissionRoute><AiFeedbackPage /></PermissionRoute>} />
+          <Route path="/subscriptions" element={<HomeRedirect />} />
+          <Route path="/admin/users" element={<PermissionRoute><AdminUsersPage /></PermissionRoute>} />
+          <Route path="/admin/roles" element={<PermissionRoute><RolesPage /></PermissionRoute>} />
+          <Route path="/403" element={<ProtectedRoute><NoAccessPage /></ProtectedRoute>} />
+          <Route path="*" element={<ProtectedRoute><NotFoundPage /></ProtectedRoute>} />
         </Routes>
       </ToastProvider>
     </BrowserRouter>

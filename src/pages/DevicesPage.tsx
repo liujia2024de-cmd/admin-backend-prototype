@@ -2,25 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarDays, ChevronDown, Download, ListChecks } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
+import { ExportTaskDrawer } from "@/components/export/ExportTaskDrawer";
 import { Drawer } from "@/components/ui/Drawer";
 import { Panel } from "@/components/ui/Panel";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/useToast";
 import { devices, users } from "@/data/mock";
+import { createAsyncExportTask, updateAsyncExportTaskStatus } from "@/lib/asyncExport";
+import { isSuperAdmin, readSession } from "@/lib/auth";
 
 type DeviceExportScope = "filtered" | "all";
-type DeviceExportTask = {
-  id: string;
-  name: string;
-  scope: DeviceExportScope;
-  scopeLabel: string;
-  count: number;
-  status: "processing" | "completed";
-  createdAt: string;
-  fileName: string;
-  payload: string;
-};
-
 const scopeLabelMap: Record<DeviceExportScope, string> = {
   filtered: "当前筛选结果",
   all: "全部数据",
@@ -28,6 +19,7 @@ const scopeLabelMap: Record<DeviceExportScope, string> = {
 
 export default function DevicesPage() {
   const { showToast } = useToast();
+  const canExport = isSuperAdmin(readSession());
   const openNativeDatePicker = (input: HTMLInputElement) => {
     if (typeof input.showPicker === "function") {
       input.showPicker();
@@ -44,11 +36,10 @@ export default function DevicesPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
-  const [batchExportOpen, setBatchExportOpen] = useState(false);
+  const [pageSize, setPageSize] = useState(10);
   const [taskListOpen, setTaskListOpen] = useState(false);
+  const [batchExportOpen, setBatchExportOpen] = useState(false);
   const [exportScope, setExportScope] = useState<DeviceExportScope>("filtered");
-  const [exportTasks, setExportTasks] = useState<DeviceExportTask[]>([]);
 
   const deviceRows = useMemo(
     () =>
@@ -109,18 +100,6 @@ export default function DevicesPage() {
 
   const estimatedExportCount = getDevicesByScope(exportScope).length;
 
-  const downloadTextFile = (fileName: string, content: string, mimeType = "text/plain;charset=utf-8") => {
-    const blob = new Blob([content], { type: mimeType });
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(downloadUrl);
-  };
-
   const createTaskTime = () => new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
 
   const createExportTask = () => {
@@ -137,42 +116,30 @@ export default function DevicesPage() {
     const fileName = `设备SN列表-${Date.now()}.csv`;
     const taskId = `device-export-${Date.now()}`;
     const payload = ["设备SN", ...targetDevices.map((device) => device.snCode)].join("\n");
-
-    setExportTasks((current) => [
-      {
-        id: taskId,
-        name: "设备 SN 导出任务",
-        scope: exportScope,
-        scopeLabel: scopeLabelMap[exportScope],
-        count: targetDevices.length,
-        status: "processing",
-        createdAt: createTaskTime(),
-        fileName,
-        payload,
-      },
-      ...current,
-    ]);
+    createAsyncExportTask({
+      id: taskId,
+      module: "devices",
+      moduleLabel: "设备管理",
+      name: "设备 SN 导出任务",
+      scopeLabel: scopeLabelMap[exportScope],
+      count: targetDevices.length,
+      createdAt: createTaskTime(),
+      fileName,
+      mimeType: "text/csv;charset=utf-8",
+      payload,
+    });
 
     setBatchExportOpen(false);
     setTaskListOpen(true);
     showToast({
       tone: "info",
       title: "导出任务已创建",
-      description: `系统正在为 ${targetDevices.length} 条设备数据生成导出文件。`,
+      description: `系统正在为 ${targetDevices.length} 条设备数据生成导出文件，可在当前页面的导出任务中查看进度。`,
     });
 
     window.setTimeout(() => {
-      setExportTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: "completed" } : task)));
+      updateAsyncExportTaskStatus(taskId, "completed");
     }, 1200);
-  };
-
-  const downloadExportTask = (task: DeviceExportTask) => {
-    downloadTextFile(task.fileName, task.payload, "text/csv;charset=utf-8");
-    showToast({
-      tone: "success",
-      title: "导出文件已开始下载",
-      description: `${task.fileName} 已开始下载。`,
-    });
   };
 
   return (
@@ -182,20 +149,22 @@ export default function DevicesPage() {
           title="设备列表"
           overflowVisible
           action={
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-4 py-2.5 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA]"
-                onClick={() => setTaskListOpen(true)}
-              >
-                <ListChecks className="h-4 w-4" />
-                导出任务
-              </button>
-              <button className="brand-primary-btn px-4 py-2.5" onClick={() => setBatchExportOpen(true)}>
-                <Download className="h-4 w-4" />
-                批量导出
-              </button>
-            </div>
+            canExport ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-4 py-2.5 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA]"
+                  onClick={() => setTaskListOpen(true)}
+                >
+                  <ListChecks className="h-4 w-4" />
+                  导出任务
+                </button>
+                <button className="brand-primary-btn px-4 py-2.5" onClick={() => setBatchExportOpen(true)}>
+                  <Download className="h-4 w-4" />
+                  批量导出
+                </button>
+              </div>
+            ) : null
           }
         >
           <div className="grid gap-4 xl:grid-cols-[1fr_1fr_0.9fr_1fr_auto]">
@@ -363,7 +332,7 @@ export default function DevicesPage() {
                   }}
                   className="rounded-xl border border-[#d8ebff] bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                 >
-                  {[8, 10, 20].map((size) => (
+                  {[10, 20, 50].map((size) => (
                     <option key={size} value={size}>
                       {size} 条
                     </option>
@@ -425,54 +394,18 @@ export default function DevicesPage() {
           </div>
         </Panel>
 
-        <Drawer
+        <ExportTaskDrawer
           open={taskListOpen}
-          title="导出任务"
-          description="这里集中查看设备数据导出任务状态，文件生成完成后可直接下载。"
           onClose={() => setTaskListOpen(false)}
-        >
-          {exportTasks.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-[#d8ebff] bg-[#f8fbff] p-6 text-sm leading-6 text-[#6f8fb3]">
-              暂无导出任务。你可以先点击“批量导出”创建任务，生成完成后再回到这里下载文件。
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {exportTasks.map((task) => (
-                <div key={task.id} className="flex flex-col gap-4 rounded-[24px] border border-[#e9f4ff] bg-white p-5 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="font-medium text-slate-900">{task.name}</div>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                          task.status === "completed" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                        }`}
-                      >
-                        {task.status === "completed" ? "已完成" : "处理中"}
-                      </span>
-                    </div>
-                    <div className="text-sm text-[#6f8fb3]">
-                      导出范围：{task.scopeLabel} · 数据量：{task.count} 条 · 创建时间：{task.createdAt}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={task.status !== "completed"}
-                    onClick={() => downloadExportTask(task)}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#d8ebff] bg-white px-4 py-2.5 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA] disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    <Download className="h-4 w-4" />
-                    {task.status === "completed" ? "下载文件" : "生成中"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Drawer>
+          module="devices"
+          title="设备管理导出任务"
+          description="查看设备管理页创建的导出任务状态，文件生成完成后可直接在这里下载。"
+        />
 
         <Drawer
           open={batchExportOpen}
           title="批量导出设备"
-          description="按导出范围创建后台导出任务，适合大量设备数据导出。文件生成完成后可在任务列表下载。"
+          description="按导出范围创建后台导出任务，适合大量设备数据导出。文件生成完成后可在当前页面的导出任务中下载。"
           onClose={() => setBatchExportOpen(false)}
           footer={
             <div className="flex items-center justify-between gap-3">
@@ -526,7 +459,7 @@ export default function DevicesPage() {
               <div className="text-sm font-medium text-slate-900">任务说明</div>
               <div className="mt-3 space-y-2 text-sm leading-6 text-[#6f8fb3]">
                 <div>1. 大数据量导出不再逐条勾选，直接按当前筛选结果或全部数据创建任务。</div>
-                <div>2. 任务创建后会进入导出队列，生成完成后可在右上角“导出任务”入口查看并下载文件。</div>
+                <div>2. 任务创建后会进入当前页面的导出任务列表，生成完成后可直接下载文件。</div>
                 <div>3. 当前为原型演示，默认导出 CSV 文件。</div>
               </div>
             </section>

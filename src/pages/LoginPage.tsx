@@ -1,18 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, ShieldAlert } from "lucide-react";
+import { Navigate } from "react-router-dom";
 import { AdvinciLogo } from "@/components/brand/AdvinciLogo";
+import { demoAccounts, getDefaultHomePath, readSession, writeSession, type AppRole } from "@/lib/auth";
 
 const loginIllustration =
   "https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=realistic%20leopard%20gecko%20inside%20a%20premium%20naturalistic%20terrarium%2C%20entire%20head%20fully%20visible%2C%20head%20not%20cropped%2C%20lush%20reptile%20landscaping%2C%20natural%20rocks%2C%20branches%2C%20moss%2C%20warm%20habitat%20details%2C%20gecko%20positioned%20slightly%20right%20of%20center%2C%20soft%20natural%20lighting%2C%20high-end%20editorial%20photography%2C%20no%20text%2C%20no%20watermark&image_size=portrait_4_3";
 
 export default function LoginPage() {
+  const session = readSession();
   const [appRegion, setAppRegion] = useState<"cn" | "global">("cn");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [captcha, setCaptcha] = useState("");
+  const [emailCode, setEmailCode] = useState("");
   const [error, setError] = useState("");
   const [failedCount, setFailedCount] = useState(0);
   const [lockedSeconds, setLockedSeconds] = useState(0);
+  const [verifyStep, setVerifyStep] = useState<"credentials" | "email">("credentials");
+  const [pendingRole, setPendingRole] = useState<AppRole | null>(null);
+  const [resendSeconds, setResendSeconds] = useState(60);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!lockedSeconds) return;
@@ -28,6 +35,14 @@ export default function LoginPage() {
     const seconds = String(lockedSeconds % 60).padStart(2, "0");
     return `账号已锁定，剩余 ${minutes}:${seconds} 后可再次尝试`;
   }, [lockedSeconds]);
+
+  useEffect(() => {
+    if (verifyStep !== "email" || resendSeconds <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendSeconds((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds, verifyStep]);
 
   const regionMeta = useMemo(
     () =>
@@ -47,30 +62,97 @@ export default function LoginPage() {
     [appRegion],
   );
 
-  const submit = () => {
-    if (lockedSeconds > 0) {
-      setError(lockMessage);
-      return;
-    }
-    if (!username.trim() || !password.trim() || !captcha.trim()) {
-      setError("用户名、密码和验证码均为必填项。");
-      return;
-    }
+  const pendingAccount = pendingRole ? demoAccounts[pendingRole] : null;
+  const maskEmail = (email: string) => {
+    const [name, domain] = email.split("@");
+    if (!name || !domain) return email;
+    if (name.length <= 2) return `${name[0] ?? "*"}***@${domain}`;
+    return `${name.slice(0, 2)}***@${domain}`;
+  };
 
-    if (username === "today_admin" && password === "Admin@123" && captcha.toUpperCase() === "8H4Q") {
-      window.location.href = "/dashboard";
-      return;
-    }
-
+  const markLoginFailed = () => {
     const nextFailed = failedCount + 1;
     setFailedCount(nextFailed);
     if (nextFailed >= 5) {
       setLockedSeconds(30 * 60);
+      setVerifyStep("credentials");
+      setPendingRole(null);
+      setEmailCode("");
       setError("连续 5 次登录失败，账号已锁定 30 分钟。");
       return;
     }
-    setError(`账号或验证码错误，已失败 ${nextFailed} 次。`);
+    setError(`账号、密码或邮箱验证码错误，已失败 ${nextFailed} 次。`);
   };
+
+  const submitCredentials = () => {
+    if (lockedSeconds > 0) {
+      setError(lockMessage);
+      return;
+    }
+    if (!username.trim() || !password.trim()) {
+      setError("用户名和密码均为必填项。");
+      return;
+    }
+
+    const matchedAccountEntry = (Object.entries(demoAccounts) as [AppRole, (typeof demoAccounts)[AppRole]][]).find(
+      ([, account]) => username.trim() === account.username && password === account.password,
+    );
+
+    if (!matchedAccountEntry) {
+      markLoginFailed();
+      return;
+    }
+
+    const [role] = matchedAccountEntry;
+    setPendingRole(role);
+    setVerifyStep("email");
+    setEmailCode("");
+    setResendSeconds(60);
+    setError("");
+    setNotice(`邮箱验证码已发送至 ${maskEmail(matchedAccountEntry[1].email)}，请在 10 分钟内完成验证。`);
+  };
+
+  const submitEmailCode = () => {
+    if (lockedSeconds > 0) {
+      setError(lockMessage);
+      return;
+    }
+    if (!pendingRole || !pendingAccount) {
+      setVerifyStep("credentials");
+      setError("登录会话已失效，请重新输入账号密码。");
+      return;
+    }
+    if (!emailCode.trim()) {
+      setError("请输入邮箱验证码。");
+      return;
+    }
+    if (emailCode.trim() !== pendingAccount.verificationCode) {
+      markLoginFailed();
+      return;
+    }
+
+    writeSession({
+      username: pendingAccount.username,
+      role: pendingRole,
+      region: appRegion,
+      email: pendingAccount.email,
+    });
+    setNotice("");
+    window.location.href = getDefaultHomePath(pendingRole);
+  };
+
+  const resendCode = () => {
+    if (resendSeconds > 0) return;
+    setResendSeconds(60);
+    setError("");
+    if (pendingAccount) {
+      setNotice(`新的邮箱验证码已发送至 ${maskEmail(pendingAccount.email)}，请注意查收。`);
+    }
+  };
+
+  if (session) {
+    return <Navigate to={getDefaultHomePath(session.role)} replace />;
+  }
 
   return (
     <div className="min-h-screen bg-[#eef2f6] px-6 py-10 text-slate-950 lg:px-10">
@@ -120,9 +202,10 @@ export default function LoginPage() {
                   <input
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
+                    disabled={verifyStep === "email"}
                     className={`mt-2 w-full rounded-2xl border px-4 py-3.5 text-sm outline-none transition ${
                       error && !username.trim() ? "border-rose-300 bg-rose-50" : "border-[#d7e9ff] bg-white focus:border-[#1B8BFA] focus:bg-white"
-                    }`}
+                    } disabled:cursor-not-allowed disabled:bg-slate-50`}
                     placeholder={regionMeta.usernamePlaceholder}
                   />
                 </label>
@@ -132,31 +215,42 @@ export default function LoginPage() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    disabled={verifyStep === "email"}
                     className={`mt-2 w-full rounded-2xl border px-4 py-3.5 text-sm outline-none transition ${
                       error && !password.trim() ? "border-rose-300 bg-rose-50" : "border-[#d7e9ff] bg-white focus:border-[#1B8BFA] focus:bg-white"
-                    }`}
+                    } disabled:cursor-not-allowed disabled:bg-slate-50`}
                     placeholder="请输入密码"
                   />
                 </label>
-                <div className="grid gap-4 sm:grid-cols-[1fr_132px]">
+                <div className="grid gap-4 sm:grid-cols-[1fr_168px]">
                   <label className="block">
-                    <span className="text-sm font-medium text-slate-600">验证码</span>
+                    <span className="text-sm font-medium text-slate-600">邮箱验证码</span>
                     <input
-                      value={captcha}
-                      onChange={(e) => setCaptcha(e.target.value)}
+                      value={emailCode}
+                      onChange={(e) => setEmailCode(e.target.value)}
+                      disabled={verifyStep !== "email"}
                       className={`mt-2 w-full rounded-2xl border px-4 py-3.5 text-sm outline-none transition ${
-                        error && !captcha.trim() ? "border-rose-300 bg-rose-50" : "border-[#d7e9ff] bg-white focus:border-[#1B8BFA] focus:bg-white"
-                      }`}
-                      placeholder="请输入验证码"
+                        error && verifyStep === "email" && !emailCode.trim()
+                          ? "border-rose-300 bg-rose-50"
+                          : "border-[#d7e9ff] bg-white focus:border-[#1B8BFA] focus:bg-white"
+                      } disabled:cursor-not-allowed disabled:bg-slate-50`}
+                      placeholder={verifyStep === "email" ? "请输入邮箱验证码" : "先完成账号密码校验"}
                     />
                   </label>
                   <div className="flex items-end">
-                    <div className="flex h-[54px] w-full items-center justify-center rounded-2xl border border-[#dcecff] bg-[#f3f9ff] text-sm font-semibold tracking-[0.2em] text-[#1B8BFA]">
-                      8H4Q
-                    </div>
+                    <button
+                      type="button"
+                      disabled={verifyStep !== "email" || resendSeconds > 0}
+                      onClick={resendCode}
+                      className="flex h-[54px] w-full items-center justify-center rounded-2xl border border-[#dcecff] bg-[#f3f9ff] px-3 text-sm font-semibold text-[#1B8BFA] disabled:cursor-not-allowed disabled:text-[#9abce0]"
+                    >
+                      {verifyStep !== "email" ? "校验后发送" : resendSeconds > 0 ? `${resendSeconds}s 后重发` : "重新发送"}
+                    </button>
                   </div>
                 </div>
               </div>
+
+              {notice ? <div className="mt-4 rounded-2xl border border-[#d8ebff] bg-[#f7fbff] px-4 py-3 text-sm text-[#5e84ae]">{notice}</div> : null}
 
               <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${lockedSeconds ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
                 {lockedSeconds ? (
@@ -165,7 +259,20 @@ export default function LoginPage() {
                     <span>{lockMessage}</span>
                   </div>
                 ) : (
-                  `连续 5 次登录失败后将锁定账号 30 分钟。当前为${regionMeta.label}登录，演示账号：today_admin / Admin@123 / 8H4Q`
+                  <div className="space-y-1.5">
+                    <div>当前采用账号密码 + 邮箱验证码二次验证。连续 5 次失败后锁定 30 分钟。</div>
+                    {verifyStep === "email" && pendingAccount ? (
+                      <>
+                        <div>验证码已发送至：{maskEmail(pendingAccount.email)}</div>
+                        <div>原型演示验证码：{pendingAccount.verificationCode}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>超级管理员：today_admin / Admin@123 / today@reptile-lab.io</div>
+                        <div>开发人员：dev_li / Dev@2026 / dev.li@reptile-lab.io</div>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -174,12 +281,28 @@ export default function LoginPage() {
               <button
                 type="button"
                 disabled={lockedSeconds > 0}
-                onClick={submit}
+                onClick={verifyStep === "credentials" ? submitCredentials : submitEmailCode}
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1B8BFA] px-5 py-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(27,139,250,0.22)] transition hover:bg-[#1577d9] disabled:cursor-not-allowed disabled:bg-[#8fc7ff]"
               >
-                登录
+                {verifyStep === "credentials" ? "下一步" : "验证并登录"}
                 <ArrowRight className="h-4 w-4" />
               </button>
+
+              {verifyStep === "email" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyStep("credentials");
+                    setPendingRole(null);
+                    setEmailCode("");
+                    setError("");
+                    setNotice("");
+                  }}
+                  className="mt-3 w-full rounded-2xl border border-[#d8ebff] bg-white px-5 py-4 text-sm font-medium text-[#6287b0] transition hover:border-[#1B8BFA] hover:text-[#1B8BFA]"
+                >
+                  返回修改账号密码
+                </button>
+              ) : null}
 
             </div>
           </section>

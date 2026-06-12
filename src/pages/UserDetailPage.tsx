@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Panel } from "@/components/ui/Panel";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { devices, userMobileDevices, userOwnedDevices, users } from "@/data/mock";
+import { getUserActivityDescription, getUserActivityLevel, getUserActivitySecondaryTag, getUserActivityTone } from "@/lib/userActivity";
 
 export default function UserDetailPage() {
   const { id } = useParams();
@@ -26,6 +27,9 @@ export default function UserDetailPage() {
       }),
     [],
   );
+  const activityLevel = getUserActivityLevel(user.lastActiveAt);
+  const activityDescription = getUserActivityDescription(activityLevel);
+  const activitySecondaryTag = getUserActivitySecondaryTag(user.lastActiveAt);
 
   return (
     <AppShell>
@@ -63,8 +67,10 @@ export default function UserDetailPage() {
             <div>
               <div className="text-xs uppercase tracking-[0.22em] text-slate-400">用户状态</div>
               <div className="mt-2">
-                <StatusBadge value="活跃" tone="green" />
+                <StatusBadge value={activityLevel} tone={getUserActivityTone(activityLevel)} />
               </div>
+              {activitySecondaryTag ? <div className="mt-2 inline-flex rounded-full bg-[#eef6ff] px-3 py-1 text-xs font-medium text-[#1B8BFA]">{activitySecondaryTag}</div> : null}
+              <div className="mt-2 text-xs leading-5 text-slate-500">{activityDescription}</div>
             </div>
             <div>
               <div className="text-xs uppercase tracking-[0.22em] text-slate-400">注册时间</div>
