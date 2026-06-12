@@ -2369,7 +2369,7 @@ export default function DashboardPage() {
             </section>
 
             <section className="space-y-4">
-              <div className="grid gap-6 xl:grid-cols-4">
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                 <Panel title="用户地区分布" description="查看用户主要地区分布占比" padded={false}>
                   <div className="px-5 pt-[7px] pb-[7px]">
                     <div className="mt-4 h-[220px] overflow-y-auto pr-1">
@@ -2448,8 +2448,6 @@ export default function DashboardPage() {
                   </div>
                 </Panel>
 
-              </div>
-              <div className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
                 <Panel title="用户活跃分层分布" description="统一按近 7 天、8~30 天、31~60 天、超过 60 天未打开 App 进行分层">
                   <div className="mt-4 h-[220px] overflow-y-auto pr-1">
                     <div style={{ height: `${Math.max(activityDistribution.length * 32, 220)}px` }}>
@@ -2470,12 +2468,6 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </Panel>
-                <StatCard
-                  label="近24小时高活跃用户"
-                  value={`${highActivityInsight.highActiveCount.toLocaleString()}人`}
-                  subtext={`占全部用户 ${highActivityInsight.highActiveShare}%`}
-                  tone="teal"
-                />
               </div>
             </section>
 
